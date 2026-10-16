@@ -261,7 +261,7 @@ const hemi = new THREE.HemisphereLight(0xffffff, 0x555566, 1.6); scene.add(hemi)
 const key = new THREE.DirectionalLight(0xffffff, 2.2); scene.add(key, key.target);
 const clay = new THREE.MeshStandardMaterial({color:0xb8bcc6, roughness:.85});
 const sel = {box:null, mesh:null};
-let sun = null, ground = null, wash = null;
+let sun = null, ground = null, wash = null, meadow = null, minfo = null;
 let model = null, grid = null, bbox = null, skel = null, home = null, meshes = [], cur = null, token = 0, view = 'lib';
 const flags = {wire:false, clay:false};
 
@@ -288,7 +288,8 @@ function clearSel(){ if(sel.box){ scene.remove(sel.box); sel.box = null; } sel.m
 function disposeModel(){
   stopPlayback();
   if(!model) return;
-  disposeObj(model); scene.remove(model, grid, bbox); if(skel){ scene.remove(skel); skel.dispose?.(); } if(sun){ scene.remove(sun, sun.target, ground, wash); wash.material.map.dispose(); wash.material.dispose(); ground.material.dispose(); sun = ground = wash = null; }
+  disposeObj(model); scene.remove(model, grid, bbox); if(skel){ scene.remove(skel); skel.dispose?.(); } if(meadow){ meadow.dispose(); meadow = null; } minfo = null;
+  if(sun){ scene.remove(sun, sun.target, ground, wash); wash.material.map.dispose(); wash.material.dispose(); ground.material.dispose(); sun = ground = wash = null; }
   model = grid = bbox = skel = null; meshes = []; clearSel();
 }
 
@@ -368,7 +369,7 @@ $('#vol').oninput = e => { if(T.audio) T.audio.volume = +e.target.value; };
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   if(view !== 'viewer') return;
-  tick(dt); controls.update();
+  tick(dt); controls.update(); meadow?.update(performance.now() / 1000, camera);
   key.position.copy(camera.position).add(new THREE.Vector3(1,2,1)); key.target.position.copy(controls.target);
   sel.box?.update();
   renderer.render(scene, camera);
@@ -400,7 +401,8 @@ function mount(obj){
   wash = new THREE.Mesh(new THREE.PlaneGeometry(span*1.5, span*1.5), new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cv), transparent:true, depthWrite:false}));
   wash.rotation.x = -Math.PI/2; wash.position.set(c.x, box.min.y + span*.002, c.z);
   meshes.forEach(m => m.castShadow = true);
-  scene.add(sun, sun.target, ground, wash); sceneApply();
+  minfo = {span, center: new THREE.Vector3(c.x, box.min.y, c.z)};
+  scene.add(sun, sun.target, ground, wash); sceneApply(); meadowApply();
   frame(box); home = {pos:camera.position.clone(), tgt:controls.target.clone(), near:camera.near, far:camera.far};
   $('#load').hidden = true; setupTransport(cur, obj); inspector(size);
 }
@@ -636,18 +638,21 @@ window.mv = {THREE, frame, controls, camera, get meshes(){ return meshes; }, get
 // ---------- scenery backdrop: shan-shui-inf (MIT, see shanshui-LICENSE.txt) ----------
 // The engine runs in a hidden iframe (it overrides Math.random). Its generated chunks are regrouped by depth into 5 layers that
 // get their own parallax, blur and haze, so the scenery has real distance. The nearest layer is drawn OVER the model's feet.
-const SC_DEF = {on:false, kind:'mountain', seed:'', zoom:1.3, v:0, parallax:40, mist:55, dblur:2, fore:60, shadow:45, sepia:25, hue:0, bright:100, contrast:100, sat:100, light:100};
-const SC = {...SC_DEF}; try{ Object.assign(SC, JSON.parse(localStorage.getItem('scene') || '{}')); }catch(e){}
+const MEADOW_DEF = {height:50, density:70, wind:45, speed:50, gust:35, dir:35, dry:25, rough:35, sun:42};
+const SC_DEF = {meadow:{...MEADOW_DEF}, on:false, kind:'mountain', seed:'', zoom:1.3, v:0, parallax:40, mist:55, dblur:2, fore:60, shadow:45, sepia:25, hue:0, bright:100, contrast:100, sat:100, light:100};
+const SC = {...SC_DEF, meadow:{...MEADOW_DEF}}; try{ Object.assign(SC, JSON.parse(localStorage.getItem('scene') || '{}')); }catch(e){}
 const SLIDERS = [['zoom','Zoom',.8,3,.05],['v','Vertical',-300,300,5],['parallax','Parallax',0,100,1],['mist','Distance haze',0,100,1],['dblur','Depth blur',0,8,.5],
   ['fore','Foreground ink',0,100,1],['shadow','Ground shadow',0,100,1],['sepia','Warmth',0,100,1],['hue','Hue',-180,180,1],['bright','Brightness',40,160,1],
   ['contrast','Contrast',40,160,1],['sat','Colour',0,200,1],['light','Model light',20,220,5]];
 const PRESETS = {Ink:{sat:0,sepia:0,bright:100,contrast:110,hue:0}, Paper:{sat:70,sepia:35,bright:100,contrast:100,hue:0},
   Dusk:{sepia:40,hue:-20,bright:70,contrast:110,sat:90}, Mist:{mist:90,dblur:4,bright:112,contrast:75,sat:60,sepia:15,hue:0}};
+const MSLIDERS = [['height','Grass height',0,100,1],['density','Density',5,100,1],['wind','Wind',0,100,1],['speed','Wind speed',0,100,1],['gust','Gusts',0,100,1],['dir','Wind direction',0,360,5],
+  ['dry','Dryness',0,100,1],['rough','Terrain relief',0,100,1],['sun','Sun height',3,80,1]];
 const BANDS = [[-1e9,300],[300,400],[400,500],[500,620],[620,1e9]], PAR = [.08,.22,.42,.7,1.1], BLUR = [1,.7,.4,.15,0], HAZE = [.8,.55,.35,.15], LW0 = 4200, LH0 = 700;
 let LW = LW0, LH = LH0, lyEls = [], hzEls = [];
 const sceneSave = () => { try{ localStorage.setItem('scene', JSON.stringify(SC)); }catch(e){} };
 const ssi = $('#ssi'), back = $('#back'), fore = $('#fore');
-const KINDS = {mountain:'Mountains', flowers:'Flowers', fish:'Fish'};
+const KINDS = {mountain:'Mountains', flowers:'Flowers', fish:'Fish', meadow:'Meadow (3D)'};
 function ssiLoad(){
   if(!SC.seed) SC.seed = String(Math.floor(Math.random()*1e6));
   const sd = $('#seed'); if(sd) sd.value = SC.seed;
@@ -698,20 +703,33 @@ function layersBuild(){
   hazeAndLayers(BANDS.slice(0, 4).map(svg), svg(BANDS[4]));
 }
 ssi.onload = ssiLoaded;
+async function meadowApply(){                           // the 3D meadow lives only while Scene is on, kind = Meadow and a model is mounted
+  const want = () => SC.on && SC.kind === 'meadow' && model && minfo;
+  if(!want()){ if(meadow){ meadow.dispose(); meadow = null; } return; }
+  if(meadow) return;
+  const {createMeadow} = await import('./meadow.js');
+  if(meadow || !want()) return;
+  meadow = createMeadow({scene, span:minfo.span, center:minfo.center, seed:SC.seed || '1', params:SC.meadow}); meadowSun(); sceneApply();
+}
+function meadowSun(){                                   // the model's shadow light follows the meadow's sun
+  if(!meadow || !sun) return;
+  const m = meadow, e = Math.max(.05, m.sunDir.y);
+  sun.position.copy(minfo.center).addScaledVector(m.sunDir, minfo.span * 3.6); sun.color.copy(m.sunColor); sun.intensity = 2.6 * (.25 + .75 * Math.sqrt(e));
+}
 function groundApply(){
   if(!ground) return;
-  const on = SC.on && SC.shadow > 0;
-  ground.visible = wash.visible = sun.visible = on;
+  const on = SC.on && SC.shadow > 0 && SC.kind !== 'meadow';
+  ground.visible = wash.visible = on; sun.visible = SC.on && (SC.kind === 'meadow' || SC.shadow > 0);
   ground.material.opacity = .6 * SC.shadow/100; wash.material.opacity = .55 * SC.shadow/100;
 }
 function sceneApply(){
-  back.hidden = fore.hidden = !SC.on;
+  back.hidden = fore.hidden = !SC.on || SC.kind === 'meadow';
   scene.background = SC.on ? null : new THREE.Color($('#bg').value);
   const k = (SC.on ? SC.light : 100) / 100; hemi.intensity = 1.6*k; key.intensity = 2.2*k;
   $('#bScene').classList.toggle('on', !$('#scenePanel').hidden);
-  groundApply();
+  groundApply(); if(!!meadow !== (SC.on && SC.kind === 'meadow')) meadowApply();
   if(grid) grid.visible = $('#bGrid').classList.contains('on') && !SC.on;   // a grid on top of a painting looks wrong
-  if(!SC.on) return;
+  if(!SC.on || SC.kind === 'meadow') return;
   const look = `sepia(${SC.sepia}%) hue-rotate(${SC.hue}deg) brightness(${SC.bright}%) contrast(${SC.contrast}%) saturate(${SC.sat}%)`;
   $('#wash').style.background = SC.kind === 'fish' ? 'linear-gradient(#e4f0ee, #b9d3d6 60%, #8fb3bd)' : 'none';
   back.style.filter = look; fore.style.filter = look; fore.style.opacity = SC.fore/100;
@@ -730,23 +748,31 @@ function scenePanel(){
     <div class="r">${Object.entries(KINDS).map(([k, l]) => `<button data-kind="${k}" class="${SC.kind === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="r"><input id="seed" value="${SC.seed}" title="seed: same seed = same landscape"><button id="scGo">Go</button><button id="scDice" title="random landscape">🎲</button></div>
     <div class="r"><button id="scL">◀ scroll</button><button id="scR">scroll ▶</button></div>
-    <h4>Look</h4><div class="r">${Object.keys(PRESETS).map(k => `<button data-p="${k}">${k}</button>`).join('')}<button id="scReset">Reset</button></div>
-    ${SLIDERS.map(([k,l,a,b,st]) => `<label><span>${l}</span><input type="range" data-k="${k}" min="${a}" max="${b}" step="${st}" value="${SC[k]}"></label>`).join('')}
-    <div style="color:var(--dim);font-size:11px;margin-top:6px">Five depth layers with parallax, haze and blur; the nearest ink drifts in front of the model; sun shadow + ink wash ground it. "Shot" saves the model on a transparent background.</div>`;
+    ${SC.kind === 'meadow' ? `<h4>Meadow</h4>${MSLIDERS.map(([k,l,a,b,st]) => `<label><span>${l}</span><input type="range" data-m="${k}" min="${a}" max="${b}" step="${st}" value="${SC.meadow[k]}"></label>`).join('')}<label><span>Model light</span><input type="range" data-k="light" min="20" max="220" step="5" value="${SC.light}"></label>`
+    : `<h4>Look</h4><div class="r">${Object.keys(PRESETS).map(k => `<button data-p="${k}">${k}</button>`).join('')}<button id="scReset">Reset</button></div>
+    ${SLIDERS.map(([k,l,a,b,st]) => `<label><span>${l}</span><input type="range" data-k="${k}" min="${a}" max="${b}" step="${st}" value="${SC[k]}"></label>`).join('')}`}
+    <div style="color:var(--dim);font-size:11px;margin-top:6px">${SC.kind === 'meadow' ? 'Live 3D grass: wind-swept, terrain-aware, parted by the model. Same seed = same meadow.' : 'Five depth layers with parallax, haze and blur; the nearest ink drifts in front of the model; sun shadow + ink wash ground it. "Shot" saves the model on a transparent background.'}</div>`;
 }
-const scEnable = on => { SC.on = on; if(on && !ssi.getAttribute('src')) ssiLoad(); sceneSave(); sceneApply(); };
+const scEnable = on => { SC.on = on; if(on && SC.kind !== 'meadow' && !ssi.getAttribute('src')) ssiLoad(); sceneSave(); sceneApply(); };
 $('#bScene').onclick = () => { const p = $('#scenePanel'); p.hidden = !p.hidden; if(!p.hidden) scenePanel(); sceneApply(); };
 $('#scenePanel').addEventListener('input', e => {
   if(e.target.id === 'scOn') return scEnable(e.target.checked);
+  if(e.target.dataset.m){                               // meadow parameter
+    const k = e.target.dataset.m; SC.meadow[k] = +e.target.value; sceneSave();
+    if(k === 'rough'){ clearTimeout(window.__rt); window.__rt = setTimeout(() => { meadow?.dispose(); meadow = null; meadowApply(); }, 250); }
+    else if(meadow){ meadow.setParams(SC.meadow); meadowSun(); }
+    return;
+  }
   const k = e.target.dataset.k; if(!k) return;
   SC[k] = +e.target.value; if(!SC.on) scEnable(true); sceneSave(); sceneApply();
 });
 $('#scenePanel').addEventListener('click', e => {
   const t = e.target;
-  if(t.id === 'scGo'){ SC.seed = $('#seed').value || SC.seed; SC.on = true; ssiLoad(); sceneSave(); }
-  else if(t.id === 'scDice'){ SC.seed = String(Math.floor(Math.random()*1e6)); SC.on = true; ssiLoad(); sceneSave(); }
+  const reseed = () => { SC.on = true; sceneSave(); if(SC.kind === 'meadow'){ meadow?.dispose(); meadow = null; meadowApply(); } else ssiLoad(); };
+  if(t.id === 'scGo'){ SC.seed = $('#seed').value || SC.seed; reseed(); }
+  else if(t.id === 'scDice'){ SC.seed = String(Math.floor(Math.random()*1e6)); const sd = $('#seed'); if(sd) sd.value = SC.seed; reseed(); }
   else if(t.id === 'scL' || t.id === 'scR'){ try{ ssi.contentWindow.xcroll(t.id === 'scL' ? -300 : 300); layersBuild(); }catch(err){} }
-  else if(t.dataset.kind){ SC.kind = t.dataset.kind; SC.on = true; clearLayers(); ssiLoad(); sceneSave(); scenePanel(); }
+  else if(t.dataset.kind){ SC.kind = t.dataset.kind; SC.on = true; clearLayers(); if(SC.kind !== 'meadow') ssiLoad(); sceneSave(); scenePanel(); }
   else if(t.dataset.p){ Object.assign(SC, PRESETS[t.dataset.p]); scEnable(true); scenePanel(); }
   else if(t.id === 'scReset'){ const keep = {on:SC.on, seed:SC.seed}; Object.assign(SC, SC_DEF, keep); sceneSave(); scenePanel(); }
   sceneApply();
