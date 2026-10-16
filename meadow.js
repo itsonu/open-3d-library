@@ -228,10 +228,12 @@ const FALL_VS = /* glsl */`                                             // leave
 `;
 
 const SKY_VS = `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
-const SKY_FS = /* glsl */`uniform vec3 uSun, uSunCol, uHorizon, uZenith, uCam, uCloudCol; varying vec3 vDir;
+const SKY_FS = /* glsl */`uniform vec3 uSun, uSunCol, uHorizon, uZenith, uCam, uCloudCol, uFogC; uniform float uLow; varying vec3 vDir;
 ${NOISE_GLSL}${CLOUD_GLSL}
 void main(){ vec3 d = normalize(vDir); float h = clamp(d.y, 0., 1.);
-  vec3 col = mix(uHorizon, uZenith, pow(h, .55)); float s = max(dot(d, uSun), 0.);
+  float toSun = dot(normalize(d.xz + 1e-5), normalize(uSun.xz + 1e-5)) * .5 + .5;
+  vec3 hor = mix(mix(uHorizon, vec3(.6, .6, .72), uLow * .7), uHorizon, toSun * toSun);       // low sun: only the sun side of the horizon glows; the far side stays cool and pale
+  vec3 col = mix(hor, uZenith, pow(h, mix(.55, .38, uLow))); col = mix(col, uFogC, smoothstep(.06, 0., h) * uLow); float s = max(dot(d, uSun), 0.);   // meets the fogged ground without a seam
   col += uSunCol * (pow(s, 700.) * 3. + pow(s, 10.) * .22);
   if(d.y > .02){                                                         // clouds: intersect the view ray with the cloud plane
     float ty = (uSpan * ${CLOUD_Y}. - uCam.y) / d.y; vec2 xz = uCam.xz + d.xz * ty;
@@ -240,7 +242,7 @@ void main(){ vec3 d = normalize(vDir); float h = clamp(d.y, 0., 1.);
     vec3 cc = mix(uCloudCol * .72, mix(uCloudCol, uSunCol * 1.15, .35), lit);
     col = mix(col, cc, c * smoothstep(.02, .22, d.y) * .94);
   }
-  col = mix(col, uHorizon * .96, smoothstep(0., -.18, d.y));
+  col = mix(col, mix(hor * .96, uFogC, uLow), smoothstep(0., -.18, d.y));
   gl_FragColor = vec4(col, 1.); }`;
 
 export const MEADOW_DEFAULTS = {pond: 70, height: 50, density: 70, wind: 45, speed: 50, gust: 35, dir: 35, dry: 25, rough: 35, sun: 42, flowers: 70, weeds: 70, leaves: 60, fall: 60, clouds: 45, weather: 0, season: 33};
@@ -285,7 +287,7 @@ function petalSet(specs, seed){                                          // over
   return {pos, idx};
 }
 export function createMeadow({scene, span, center, seed = '1', params = {}, wind = new WindSystem()}){
-  const P = {...MEADOW_DEFAULTS, ...params}, group = new THREE.Group(), cs = span * .75, K = 3, KI = 2, y0 = center.y;
+  const P = {...MEADOW_DEFAULTS, ...params}, group = new THREE.Group(), cs = span * .75, K = 7, KI = 2, y0 = center.y;
   const noise = new Noise(hashStr(seed)), moist = new Noise(hashStr(seed + 'm')), patch = new Noise(hashStr(seed + 'p')), clear = new Noise(hashStr(seed + 'c')), flo = new Noise(hashStr(seed + 'f'));
   group.name = 'meadow';
 
@@ -301,7 +303,7 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
   const waterDepth = (x, z) => pond.wl - height(x, z);                       // + below the surface, - above it (world units): the single source of truth for the shoreline
   const bare = (x, z) => 1 - smooth(.3, .56, clear.fbm(x / span * 1.4 + 11, z / span * 1.4 - 3));           // 1 = bare soil patch (clearing)
   const dense = (x, z) => smooth(.32, .58, patch.fbm(x / span * 1.05 + 30, z / span * .95 - 17));              // 0 sparse .. 1 dense: grass comes in patches
-  const T = span * 12, SEG = 300, tg = new THREE.PlaneGeometry(T * 2, T * 2, SEG, SEG); tg.rotateX(-Math.PI / 2);
+  const T = span * 20, SEG = 380, tg = new THREE.PlaneGeometry(T * 2, T * 2, SEG, SEG); tg.rotateX(-Math.PI / 2);
   const tp = tg.attributes.position, col = new Float32Array(tp.count * 3), c = new THREE.Color();
   const soil = [.33, .25, .15], lush = [.2, .34, .11], dry = [.55, .5, .24];
   for(let i = 0; i < tp.count; i++){
@@ -494,7 +496,7 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
   splash.frustumCulled = false; splash.visible = false; group.add(splash);
 
   // ---- sky dome (follows the camera) with clouds
-  const skyU = {uSun: {value: sunDir}, uSunCol: {value: U.uSunCol.value}, uHorizon: {value: new THREE.Vector3()}, uZenith: {value: new THREE.Vector3()}, uCam: {value: new THREE.Vector3()}, uCloudCol: {value: new THREE.Vector3(.97, .97, .98)},
+  const skyU = {uSun: {value: sunDir}, uSunCol: {value: U.uSunCol.value}, uHorizon: {value: new THREE.Vector3()}, uZenith: {value: new THREE.Vector3()}, uCam: {value: new THREE.Vector3()}, uCloudCol: {value: new THREE.Vector3(.97, .97, .98)}, uLow: {value: 0}, uFogC: {value: new THREE.Vector3()},
     uTime: U.uTime, uCover: U.uCover, uSpan: U.uSpan, uSpeed: U.uSpeed, uWindDir: U.uWindDir};
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 20), new THREE.ShaderMaterial({vertexShader: SKY_VS, fragmentShader: SKY_FS, side: THREE.BackSide, depthWrite: false, depthTest: false, uniforms: skyU}));
   dome.renderOrder = -10; dome.frustumCulled = false; group.add(dome);
@@ -505,10 +507,10 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
   for(let j = 0; j < DN; j++) for(let i = 0; i < DN; i++){ const x = pond.cx + ((i + .5) / DN * 2 - 1) * half, z = pond.cz + ((j + .5) / DN * 2 - 1) * half, d = clamp(waterDepth(x, z) / pond.depth, 0, 1); dd.set([d * 255, 0, 0, 255], (j * DN + i) * 4); }
   const depthTex = new THREE.DataTexture(dd, DN, DN, THREE.RGBAFormat); depthTex.magFilter = depthTex.minFilter = THREE.LinearFilter; depthTex.needsUpdate = true;
   const waterU = {uTime: U.uTime, uSpan: U.uSpan, uRain: U.uRain, uWind: U.uWind, uSpeed: U.uSpeed, uWindDir: U.uWindDir, uCam: U.uCamPos, uSun: skyU.uSun, uSunCol: skyU.uSunCol, uHorizon: skyU.uHorizon, uZenith: skyU.uZenith,
-    uDepth: {value: depthTex}, uBox: {value: new THREE.Vector3(pond.cx, pond.cz, half)}, uMaxD: {value: pond.depth}, uFog: {value: new THREE.Vector2(1, 2)}};
+    uDepth: {value: depthTex}, uBox: {value: new THREE.Vector3(pond.cx, pond.cz, half)}, uMaxD: {value: pond.depth}, uFog: {value: new THREE.Vector2(1, 2)}, uFogCol: {value: new THREE.Vector3()}};
   const water = new THREE.Mesh(new THREE.PlaneGeometry(half * 2, half * 2).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({uniforms: waterU, transparent: true, depthWrite: false,
     vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: `uniform float uTime, uSpan, uRain, uMaxD, uWind, uSpeed; uniform vec2 uWindDir, uFog; uniform vec3 uCam, uSun, uSunCol, uHorizon, uZenith, uBox; uniform sampler2D uDepth; varying vec3 vW;
+    fragmentShader: `uniform float uTime, uSpan, uRain, uMaxD, uWind, uSpeed; uniform vec2 uWindDir, uFog; uniform vec3 uFogCol, uCam, uSun, uSunCol, uHorizon, uZenith, uBox; uniform sampler2D uDepth; varying vec3 vW;
       float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
       // raindrop ripples: a drop per jittered cell; each has its own start time, lifetime, final radius, strength and slight ellipse/wobble
@@ -541,7 +543,7 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
         float edge = smoothstep(.0, .012, dn) * (1. - smoothstep(.012, .05, dn));                              // foam only on the shore line, broken up, and only when windy
         float foam = edge * smoothstep(.62, .85, vn(p / uSpan * 38. + uTime * .25) * vn(p / uSpan * 17. - uTime * .1)) * (.15 + uWind) * .8;
         col = mix(col, vec3(.86, .9, .88), clamp(foam, 0., .4));
-        col = mix(col, uHorizon, smoothstep(uFog.x, uFog.y, distance(uCam, vW)));
+        col = mix(col, uFogCol, smoothstep(uFog.x, uFog.y, distance(uCam, vW)));
         float alpha = mix(body * .92, 1., fres * .9) * smoothstep(.0, .05, dn) + foam * .15;
         gl_FragColor = vec4(col, clamp(alpha, 0., 1.)); }`}));
   water.position.set(pond.cx, pond.wl, pond.cz); water.renderOrder = 2; water.frustumCulled = false; group.add(water);
@@ -644,8 +646,9 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
       sunDir.set(Math.cos(e) * Math.cos(az), Math.sin(e), Math.cos(e) * Math.sin(az)).normalize();
       const grey = (c, g) => c.map(v => v + (.58 + (c[0] + c[1] + c[2]) / 3 * .3 - v) * g), sc = lerp3([1, .6, .34], [1, .96, .88], k).map(v => v * (1 - .55 * w)), hz = grey(lerp3([.95, .66, .5], [.76, .86, .95], k), w * .75), zn = grey(lerp3([.22, .24, .42], [.2, .43, .82], k), w * .8);
       sunCol.setRGB(sc[0], sc[1], sc[2]); U.uSunCol.value.set(...sc); skyU.uHorizon.value.set(...hz); skyU.uZenith.value.set(...zn); skyU.uCloudCol.value.set(...lerp3([1, .86, .78], [.98, .98, 1], k));
-      fogCol.setRGB(hz[0], hz[1], hz[2], THREE.SRGBColorSpace); api.skyColor.setRGB(zn[0], zn[1], zn[2], THREE.SRGBColorSpace);
-      scene.fog = new THREE.Fog(fogCol, span * 1.6 * (1 - .6 * w), span * 7 * (1 - .55 * w)); waterU.uFog.value.set(span * 1.6 * (1 - .6 * w), span * 7 * (1 - .55 * w));
+      skyU.uLow.value = 1 - k; const fz = lerp3(hz, [.6, .6, .72], .4 * (1 - k));                  // fog: the average horizon, not the sun-side glow (a low sun no longer washes everything orange)
+      fogCol.setRGB(fz[0], fz[1], fz[2], THREE.SRGBColorSpace); waterU.uFogCol.value.set(...fz); skyU.uFogC.value.set(...fz); api.skyColor.setRGB(zn[0], zn[1], zn[2], THREE.SRGBColorSpace);
+      scene.fog = new THREE.Fog(fogCol, 1, 2); api._w = w;                         // distances follow the camera (update)
       U.uSunWeather = w;
     },
     update(t, camera){
@@ -654,11 +657,15 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
       if(api._ema > .026) api.perf = Math.max(.35, (api.perf ?? 1) - dt * .08); else if(api._ema < .0185) api.perf = Math.min(1, (api.perf ?? 1) + dt * .03);
       wind.time = t; U.uTime.value = t; U.uCamPos.value.copy(camera.position); U.uWind.value = wind.strength; U.uGust.value = wind.gust; U.uSpeed.value = wind.speed; skyU.uCam.value.copy(camera.position);
       dome.position.copy(camera.position); dome.scale.setScalar(camera.far * .45);
+      { const c = camera.position.distanceTo(center), ww = 1 - .6 * (api._w ?? 0);                       // haze anchored to the scene: clear up to just past the subject, full before the terrain's edge (T = 20 spans)
+        const f1 = Math.max(span * 8, span * 19 - c) * ww, f0 = Math.max(span, Math.min((c + span * 1.5) * ww, f1 - span * 4));
+        if(scene.fog){ scene.fog.near = f0; scene.fog.far = f1; } waterU.uFog.value.set(f0, f1); }
       const dens = P.density / 100 * (api.perf ?? 1), sn = U.uSeason.value, aut = smooth(1.2, 2, sn) * (1 - smooth(2.6, 3, sn)), win = smooth(2.4, 3, sn), share = {grass: dens * (1 - .25 * win), flowers: P.flowers / 100 * (1 - win) * (1 - .5 * aut), weeds: P.weeds / 100, leaves: P.leaves / 100 * (1 + aut * 2.5), docks: P.weeds / 100, fall: P.fall / 100 * (1 + aut * 2.5) * (1 - win * .8)};
       for(const a of aquatic){ a.mesh.geometry.instanceCount = Math.floor(a.full * clamp(P.pond / 100, 0, 1)); }
       for(const m of chunks){
         if(m.userData.kind === 'fall'){ m.geometry.instanceCount = Math.floor(m.userData.full * clamp(share.fall, 0, 1)); continue; }
-        const d = camera.position.distanceTo(m.userData.c), lod = m.userData.kind === 'grass' ? Math.pow(clamp(1.12 - d / (span * 4.6), .08, 1), 1.4) : clamp(1.2 - d / (span * 2.6), 0, 1);
+        const d = camera.position.distanceTo(m.userData.c), rim = 1 - smooth(K * cs * .7, (K + .5) * cs, Math.hypot(m.userData.c.x - center.x, m.userData.c.z - center.z));   // the grass thins out towards the edge of its field instead of stopping
+        const lod = m.userData.kind === 'grass' ? Math.pow(clamp(1.12 - d / (span * 4.6), .08, 1), 1.4) * rim : clamp(1.2 - d / (span * 2.6), 0, 1);
         m.geometry.instanceCount = Math.floor(m.userData.full * lod * clamp(share[m.userData.kind], 0, 1)); m.visible = m.geometry.instanceCount > 0;
       }
     },
