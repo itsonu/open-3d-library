@@ -36,6 +36,26 @@ function mossy(mat, key){
   return mat;
 }
 
+// Low-poly but natural rocks: a displaced icosphere with smooth normals, vertex colours (dark crevices, lighter tops, brown soil-stained base),
+// a squashed random silhouette and its own roughness, so no two look alike and they sit in the terrain instead of glowing pale.
+function rockMesh(rnd, R){
+  const g = new THREE.IcosahedronGeometry(R, 2), p = g.attributes.position, off = rnd() * 50, col = new Float32Array(p.count * 3);
+  const h = (x, y, z) => { const t = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return t - Math.floor(t); };
+  const vn = (x, y, z) => { const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z), fx = x - ix, fy = y - iy, fz = z - iz, sm = t => t * t * (3 - 2 * t), u = sm(fx), v = sm(fy), w = sm(fz), L = (a, b, t) => a + (b - a) * t;
+    return L(L(L(h(ix, iy, iz), h(ix + 1, iy, iz), u), L(h(ix, iy + 1, iz), h(ix + 1, iy + 1, iz), u), v), L(L(h(ix, iy, iz + 1), h(ix + 1, iy, iz + 1), u), L(h(ix, iy + 1, iz + 1), h(ix + 1, iy + 1, iz + 1), u), v), w); };
+  const sx = 1 + rnd() * .45, sy = .5 + rnd() * .3, sz = 1 + rnd() * .35, tone = .8 + rnd() * .4, c = new THREE.Color();
+  for(let k = 0; k < p.count; k++){
+    let x = p.getX(k) / R, y = p.getY(k) / R, z = p.getZ(k) / R;
+    const d = 1 + .24 * (vn(x * 2.6 + off, y * 2.6, z * 2.6) - .5) + .1 * (vn(x * 7 + off, y * 7, z * 7) - .5) - .12 * Math.max(0, -y - .35);      // lumpy, flatter underneath
+    x *= d; y *= d; z *= d; const grain = vn(x * 9 + off, y * 9, z * 9);
+    let l = (.2 + .1 * grain) * tone * (d < 1 ? .72 + .28 * d : 1) * (y > .45 ? 1.18 : 1);                                                       // crevices darker, tops lighter
+    const soil = Math.max(0, .15 - y) * 2.2; c.setRGB(l * (1 + soil * .5), l * (1 - soil * .08) * (.96 + .06 * grain), l * (1 - soil * .35) * .94, THREE.SRGBColorSpace);
+    col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b; p.setXYZ(k, x * R * sx, y * R * sy, z * R * sz);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.computeVertexNormals();
+  return new THREE.Mesh(g, mossy(new THREE.MeshStandardMaterial({vertexColors: true, roughness: .72 + rnd() * .26, metalness: 0}), 'rock'));
+}
+
 export class Fauna {
   constructor({scene, meadow, span, center, seed = '1', level = 45}){
     Object.assign(this, {scene, meadow, span, center, level, recs: [], rnd: mulberry(hashStr(seed + ':fauna')), M: span / 1.65, dead: false, building: false});
@@ -62,18 +82,16 @@ export class Fauna {
 
   // ---- perch props: weathered fence posts, a stump and rocks (also give birds somewhere to land)
   #props(){
-    const wood = mossy(new THREE.MeshStandardMaterial({color: 0x6e5b44, roughness: 1}), 'wood'), rock = mossy(new THREE.MeshStandardMaterial({color: 0x86857d, roughness: 1, flatShading: true}), 'rock');
+    const wood = mossy(new THREE.MeshStandardMaterial({color: 0x4f4132, roughness: .95}), 'wood');
     const add = (mesh, x, z, top, lift = 0) => { const y = this.ground(x, z); mesh.position.set(x, y + lift, z); mesh.castShadow = mesh.receiveShadow = true; this.group.add(mesh); this.perches.push(new V(x, y + top, z)); };
     const a0 = this.rnd() * TAU;
     for(let i = 0; i < 3; i++){ const a = a0 + i * .35, r = 3.1 + this.rnd() * .5, g = new THREE.BoxGeometry(.12, 1.1, .12); const m = new THREE.Mesh(g, wood); m.rotation.set((this.rnd() - .5) * .1, this.rnd() * 3, (this.rnd() - .5) * .1); add(m, Math.sin(a) * r, Math.cos(a) * r, 1.12, .55); }
     { const a = a0 + 2.6, r = 2.5, m = new THREE.Mesh(new THREE.CylinderGeometry(.22, .3, .5, 12), wood); add(m, Math.sin(a) * r, Math.cos(a) * r, .52, .25); }
-    for(let i = 0; i < 2; i++){ const a = a0 + 3.6 + i * 1.3, r = 2.6 + this.rnd() * .8, g = new THREE.IcosahedronGeometry(.36, 1), p = g.attributes.position;
-      for(let k = 0; k < p.count; k++){ const s = 1 + (this.rnd() - .5) * .35; p.setXYZ(k, p.getX(k) * s, p.getY(k) * s * .75, p.getZ(k) * s); } g.computeVertexNormals();
-      add(new THREE.Mesh(g, rock), Math.sin(a) * r, Math.cos(a) * r, .3, .18); }
+    for(let i = 0; i < 2; i++){ const a = a0 + 3.6 + i * 1.3, r = 2.6 + this.rnd() * .8; add(rockMesh(() => this.rnd(), .34 + this.rnd() * .14), Math.sin(a) * r, Math.cos(a) * r, .3, .12); }
     // two perches on the pond bank (a rock half in the water, a leaning post) so birds can sit by the shore and fly across it
     { const pd = new V((this.meadow.pond.cx - this.center.x) / this.M, 0, (this.meadow.pond.cz - this.center.z) / this.M); const toward = Math.atan2(-pd.x, -pd.z);
       [[toward + .75, 'rock'], [toward - .9, 'post']].forEach(([ang, kind]) => { const [bx, bz] = this.bank(pd.x + Math.sin(ang) * 3, pd.z + Math.cos(ang) * 3, kind === 'rock' ? -.004 : .02); this.shoreSpots.push([bx, bz]);
-        if(kind === 'rock'){ const g = new THREE.IcosahedronGeometry(.34, 1), p = g.attributes.position; for(let k = 0; k < p.count; k++){ const s = 1 + (this.rnd() - .5) * .3; p.setXYZ(k, p.getX(k) * s, p.getY(k) * s * .7, p.getZ(k) * s); } g.computeVertexNormals(); add(new THREE.Mesh(g, rock), bx, bz, .27, .14); }
+        if(kind === 'rock'){ add(rockMesh(() => this.rnd(), .36), bx, bz, .27, .1); }
         else { const m = new THREE.Mesh(new THREE.BoxGeometry(.11, 1.0, .11), wood); m.rotation.set((this.rnd() - .5) * .25, this.rnd() * 3, (this.rnd() - .5) * .25); add(m, bx, bz, 1.02, .48); } }); }
   }
 
