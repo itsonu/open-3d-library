@@ -380,9 +380,12 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
       U.uSunWeather = w;
     },
     update(t, camera){
+      // adaptive quality: if frames get slow, thin the grass/flowers (down to 35%); recover when there is headroom
+      const dt = Math.min(.25, Math.max(0, t - (api._t ?? t))); api._t = t; api._ema = (api._ema ?? .016) * .95 + dt * .05;
+      if(api._ema > .026) api.perf = Math.max(.35, (api.perf ?? 1) - dt * .08); else if(api._ema < .0185) api.perf = Math.min(1, (api.perf ?? 1) + dt * .03);
       wind.time = t; U.uTime.value = t; U.uCamPos.value.copy(camera.position); U.uWind.value = wind.strength; U.uGust.value = wind.gust; U.uSpeed.value = wind.speed; skyU.uCam.value.copy(camera.position);
       dome.position.copy(camera.position); dome.scale.setScalar(camera.far * .45);
-      const dens = P.density / 100, sn = U.uSeason.value, aut = smooth(1.2, 2, sn) * (1 - smooth(2.6, 3, sn)), win = smooth(2.4, 3, sn), share = {grass: dens * (1 - .25 * win), flowers: P.flowers / 100 * (1 - win) * (1 - .5 * aut), weeds: P.weeds / 100, leaves: P.leaves / 100 * (1 + aut * 2.5), docks: P.weeds / 100, fall: P.fall / 100 * (1 + aut * 2.5) * (1 - win * .8)};
+      const dens = P.density / 100 * (api.perf ?? 1), sn = U.uSeason.value, aut = smooth(1.2, 2, sn) * (1 - smooth(2.6, 3, sn)), win = smooth(2.4, 3, sn), share = {grass: dens * (1 - .25 * win), flowers: P.flowers / 100 * (1 - win) * (1 - .5 * aut), weeds: P.weeds / 100, leaves: P.leaves / 100 * (1 + aut * 2.5), docks: P.weeds / 100, fall: P.fall / 100 * (1 + aut * 2.5) * (1 - win * .8)};
       for(const m of chunks){
         if(m.userData.kind === 'fall'){ m.geometry.instanceCount = Math.floor(m.userData.full * clamp(share.fall, 0, 1)); continue; }
         const d = camera.position.distanceTo(m.userData.c), lod = m.userData.kind === 'grass' ? Math.pow(clamp(1.12 - d / (span * 4.6), .08, 1), 1.4) : clamp(1.2 - d / (span * 2.6), 0, 1);
