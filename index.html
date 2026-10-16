@@ -209,7 +209,11 @@ async function fixTextures(obj, it){
   const fx = FIX[it.id];
   const meshes = []; obj.traverse(o => o.isMesh && meshes.push(o));
   const done = new Set();                                   // materials set by an explicit rule are left alone below
-  if(fx) for(const o of meshes){ const f = byName(fx[o.name] || fx['*']); if(f) [].concat(o.material).forEach(m => { put(m, 'map', f); done.add(m); }); }
+  if(fx) for(const o of meshes){                            // rule value: an image file name, or a "#rrggbb" colour (for parts that have no texture at all)
+    const v = fx[o.name] || fx['*'], f = byName(v);
+    if(/^#/.test(v || '')) [].concat(o.material).forEach(m => { m.map = null; m.color.set(v); m.side = THREE.DoubleSide; m.needsUpdate = true; done.add(m); });
+    else if(f) [].concat(o.material).forEach(m => { put(m, 'map', f); done.add(m); });
+  }
   {
     const mats = new Set(meshes.flatMap(o => [].concat(o.material)));
     const color = imgs.find(f => role(f.n)==='map') || (imgs.length===1 ? imgs[0] : null), normal = imgs.find(f => role(f.n)==='normalMap');
@@ -593,7 +597,7 @@ async function thumbQueue(){
   $('#status').textContent = '';
 }
 
-window.mv = {THREE, get meshes(){ return meshes; }, get cur(){ return cur; }};   // console handle for debugging
+window.mv = {THREE, frame, controls, camera, get meshes(){ return meshes; }, get cur(){ return cur; }};   // console handle for debugging
 
 // ---------- scenery backdrop: shan-shui-inf (MIT, see shanshui-LICENSE.txt) in an iframe so its Math.random override stays out of three.js ----------
 const SC_DEF = {on:false, seed:'', zoom:1.3, v:0, parallax:40, sepia:25, hue:0, bright:100, contrast:100, sat:100, blur:0, light:100};
