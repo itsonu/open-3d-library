@@ -46,9 +46,9 @@ float cloudDensity(vec2 xz){
 const CLOUD_Y = 40;                                                // cloud plane height, in model spans
 
 const VEG_HEAD = /* glsl */`
-uniform float uHeight, uDry, uWind, uGust; uniform vec4 uBody; uniform vec3 uSunW;
+uniform float uHeight, uDry, uWind, uGust; uniform vec4 uBodies[6]; uniform vec3 uSunW;   // bodies[0] = the model; 1.. = animals
 attribute vec3 aOff; attribute vec4 aParam; attribute vec4 aMisc; attribute vec3 aColor; attribute float aPart; attribute float aAttach;
-varying vec3 vCol3, vWorld; varying vec2 vLeafUv; varying float vLeaf, vTipT;
+varying vec3 vCol3, vWorld, vBlade; varying vec2 vLeafUv; varying float vLeaf, vTipT;
 ${NOISE_GLSL}
 uniform float uTime, uSpan, uSpeed; uniform vec2 uWindDir;
 float gAmp(vec2 wp, float ph){                                    // wind amplitude at a place: calm/blow patches x sway + gust packets
@@ -56,14 +56,17 @@ float gAmp(vec2 wp, float ph){                                    // wind amplit
   float slow = vnoise(wp * k * .6 - uWindDir * uTime * uSpeed * .35);
   float swell = .5 + .5 * sin(travel * k * 2.2 - uTime * uSpeed * 1.1 + ph * 6.2831);
   float gust = pow(.5 + .5 * sin(travel * k * .5 - uTime * uSpeed * .6), 4.);
-  return uWind * (.25 + .75 * slow) * (.55 + .45 * swell) + uGust * gust;
+  float ripple = sin(travel * k * 7. - uTime * uSpeed * 2.6 + ph * 6.2831) * .3;     // quick travelling ripples over the swell
+  return uWind * (.25 + .75 * slow) * (.55 + .45 * swell + ripple) + uGust * gust;
 }
 // point on a bending stem of height h at parameter t (0..1), relative to the plant base
 vec3 stem(float t, float h, float ph, float flex, float species){
   float amp = gAmp(aOff.xz, ph), flutter = sin(uTime * (6. + species * 2.5) + ph * 40. + t * 4.);
-  vec2 d = uWindDir * (amp * flex * t * t * h * .55) + vec2(-uWindDir.y, uWindDir.x) * (flutter * .03 * amp * flex * t * h);
-  vec2 bd = aOff.xz - uBody.xy; float br = length(bd), push = (1. - smoothstep(0., uBody.z, br)) * uBody.w;   // the model parts the plants
-  d += (br > .001 ? bd / br : vec2(0.)) * push * h * t * t * 1.3;
+  vec2 d = uWindDir * (amp * flex * t * t * h * 1.0) + vec2(-uWindDir.y, uWindDir.x) * (flutter * .06 * amp * flex * t * h);
+  float push = 0.; vec2 pd = vec2(0.);                                  // bodies (the model, animals) part the plants
+  for(int i = 0; i < 6; i++){ vec4 b = uBodies[i]; if(b.w <= 0.) continue; vec2 bd = aOff.xz - b.xy; float br = length(bd), pu = (1. - smoothstep(0., b.z, br)) * b.w;
+    if(pu > 0.){ pd += (br > .001 ? bd / br : vec2(0.)) * pu; push = max(push, pu); } }
+  d += pd * h * t * t * 1.3;
   vec3 p = vec3(d.x, t * h * (1. - .5 * push * t), d.y); p.y -= dot(d, d) / (2. * h + 1e-4) * t; return p;
 }
 vec2 rot2(vec2 v, float a){ float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }
@@ -72,6 +75,14 @@ const VEG_FRAG_NORMAL = `vec3 normal = normalize(vNormal); vec3 nonPerturbedNorm
 const VEG_FRAG_COLOR = /* glsl */`
   vec3 baseCol = vCol3;
   if(vLeaf > .5){ vec2 q = vLeafUv * 2. - 1.; vec2 e = q * vec2(1., .55); if(dot(e, e) > 1.) discard; baseCol *= 1. - .22 * smoothstep(.07, 0., abs(q.y)); }
+  if(vBlade.z > .5){                                                  // blade texture: midrib, fine parallel veins, dark edges, bleached base, patchy tone
+    float ax = vBlade.x, bt = vBlade.y;
+    baseCol *= 1. - .10 * (.5 + .5 * cos(ax * 18.));
+    baseCol *= 1. - .24 * smoothstep(.55, 1., abs(ax));
+    baseCol = mix(baseCol, baseCol * vec3(1.2, 1.14, .8) + vec3(.04, .05, 0.), smoothstep(.16, 0., abs(ax)) * .45);
+    baseCol = mix(baseCol, vec3(.66, .7, .38), (1. - smoothstep(0., .22, bt)) * .5);
+    baseCol *= .88 + .24 * vnoise(vWorld.xz * .35 + bt * 2.);
+  }
   vec3 lin = pow(max(baseCol, 0.), vec3(2.2));
   float cs = cloudDensity(vWorld.xz + uSunW.xz / max(uSunW.y, .1) * uSpan * ${CLOUD_Y}.);   // cloud shadow
   lin *= (1. - .5 * cs) * 1.35;
@@ -90,9 +101,9 @@ function vegMaterial(U, vertexBody, key){
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VEG_HEAD)
       // the normal chunks run before begin_vertex, so the whole custom placement goes first and replaces both
-      .replace('#include <beginnormal_vertex>', 'vec3 transformed = vec3(0.);\nvec3 vegNormal = vec3(0., 1., 0.);\n' + vertexBody + '\nvec3 objectNormal = vegNormal;')
+      .replace('#include <beginnormal_vertex>', 'vec3 transformed = vec3(0.);\nvec3 vegNormal = vec3(0., 1., 0.); vBlade = vec3(0.);\n' + vertexBody + '\nvec3 objectNormal = vegNormal;')
       .replace('#include <begin_vertex>', '');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uSunCol; varying vec3 vCol3, vWorld; varying vec2 vLeafUv; varying float vLeaf, vTipT;\n' + NOISE_GLSL + CLOUD_GLSL + 'uniform vec3 uSunW;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uSunCol; varying vec3 vCol3, vWorld, vBlade; varying vec2 vLeafUv; varying float vLeaf, vTipT;\n' + NOISE_GLSL + CLOUD_GLSL + 'uniform vec3 uSunW;')
       .replace('#include <normal_fragment_begin>', VEG_FRAG_NORMAL).replace('#include <color_fragment>', '#include <color_fragment>\n' + VEG_FRAG_COLOR)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + VEG_FRAG_EMISSIVE);
     m.userData.shader = sh;
@@ -103,12 +114,15 @@ function vegMaterial(U, vertexBody, key){
 const GRASS_VS = /* glsl */`
   float t = position.y, h = aParam.x * uHeight, ph = aParam.z, yaw = aParam.w;
   vec3 p = stem(t, h, ph, aMisc.z, aMisc.x);
-  vec2 off = rot2(vec2(position.x * aParam.y, 0.), -yaw); p.xz += off;
+  vec2 lean = vec2(cos(yaw + 1.5708), sin(yaw + 1.5708)) * (h * (.12 + .45 * fract(ph * 13.7)) * t * t);   // each blade arches over to its own side
+  p.xz += lean; p.y -= dot(lean, lean) / (2. * h + 1e-4);
+  vec2 off = rot2(vec2(position.x, position.z) * aParam.y, -yaw); p.xz += off;
+  float hw = .5 * (1. - pow(t, 1.5) * .92) + 1e-3; vBlade = vec3(position.x / hw, t, 1.);
   transformed = aOff + p; vWorld = transformed; vTipT = t; vLeaf = 0.; vLeafUv = vec2(0.);
   float dry = clamp(uDry + (aMisc.w - .5) * .7, 0., 1.);
   vec3 green = mix(vec3(.13, .29, .06), vec3(.31, .49, .12), aMisc.y), straw = mix(vec3(.47, .41, .19), vec3(.69, .6, .3), aMisc.y);
   vCol3 = mix(green, straw, dry) * (.7 + .5 * t) * mix(.3, 1., smoothstep(0., .65, t));
-  vegNormal = normalize(vec3(sin(yaw), 0., cos(yaw)) * .25 + vec3(0., 1., 0.));
+  vegNormal = normalize(vec3(sin(yaw), 0., cos(yaw)) * (.55 * sign(position.x)) + vec3(0., 1., 0.));       // the two halves of the fold catch light differently
 `;
 const PLANT_VS = /* glsl */`                                            // flowers + docks: a bending stem with organs (petals / leaves) attached
   float h = aParam.x * uHeight, ph = aParam.z, yaw = aParam.w, size = aParam.y;
@@ -128,7 +142,7 @@ const ROSETTE_VS = /* glsl */`                                          // low l
   float size = aParam.y * uHeight * .8 + aParam.y * .2, yaw = aParam.w, ph = aParam.z;
   vec3 o = position * size; o.xz = rot2(o.xz, -yaw);
   float amp = gAmp(aOff.xz, ph); vec2 d = uWindDir * amp * .12 * (position.y + length(position.xz) * .4) * size; o.xz += d;
-  vec2 bd = aOff.xz - uBody.xy; float br = length(bd), push = (1. - smoothstep(0., uBody.z, br)) * uBody.w; o.xz += (br > .001 ? bd / br : vec2(0.)) * push * size * .5;
+  for(int i = 0; i < 6; i++){ vec4 b = uBodies[i]; if(b.w <= 0.) continue; vec2 bd = aOff.xz - b.xy; float br = length(bd), pu = (1. - smoothstep(0., b.z, br)) * b.w; o.xz += (br > .001 ? bd / br : vec2(0.)) * pu * size * .5; }
   transformed = aOff + o; vWorld = transformed; vLeaf = 0.; vLeafUv = vec2(0.); vTipT = .25;
   vCol3 = mix(vec3(.15, .31, .07), vec3(.27, .46, .12), aMisc.y) * (.65 + .5 * clamp(length(position.xz), 0., 1.));
   vegNormal = normalize(vec3(0., 1., 0.) + vec3(position.x, 0., position.z) * .3);
@@ -145,12 +159,12 @@ const LEAF_VS = /* glsl */`                                             // falle
 const FALL_VS = /* glsl */`                                             // leaves in the air: fall, drift with the wind, tumble; wrap around the model
   float size = aParam.y, ph = aParam.z, box = uSpan * 5.;
   float tt = uTime * (.25 + ph * .2) + aParam.w * 7.;
-  vec2 xz = uBody.xy + (fract(aOff.xz / box + uWindDir * uTime * uSpan * .06 / box * (.6 + ph) + .5) - .5) * box;
+  vec2 xz = uBodies[0].xy + (fract(aOff.xz / box + uWindDir * uTime * uSpan * .06 / box * (.6 + ph) + .5) - .5) * box;
   float top = uSpan * 1.8, y = top - fract(aOff.y + uTime * (.035 + .03 * ph) * uSpan * .5 / top) * top;
   xz += vec2(sin(tt * 1.7 + ph * 9.), cos(tt * 1.3 + ph * 5.)) * uSpan * .08;
   vec3 o = vec3(position.x, 0., position.z) * size;
   float a1 = tt * 2.1 + ph * 6., a2 = tt * 1.6; o.xy = rot2(o.xy, sin(a1) * 1.1); o.yz = rot2(o.yz, sin(a2) * 1.0); o.xz = rot2(o.xz, tt);
-  transformed = vec3(xz.x, uBody.w * 0. + ${'GROUND_Y'} + y, xz.y) + o; vWorld = transformed; vLeaf = 1.; vLeafUv = position.xz * .5 + .5; vTipT = .4; vCol3 = aColor;
+  transformed = vec3(xz.x, ${'GROUND_Y'} + y, xz.y) + o; vWorld = transformed; vLeaf = 1.; vLeafUv = position.xz * .5 + .5; vTipT = .4; vCol3 = aColor;
   vegNormal = vec3(0., 1., 0.);
 `;
 
@@ -219,19 +233,39 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
   const sunDir = new THREE.Vector3(), sunCol = new THREE.Color();
   const U = {
     uTime: {value: 0}, uWind: {value: 0}, uGust: {value: 0}, uSpeed: {value: 1}, uHeight: {value: 1}, uDry: {value: .25}, uWindDir: {value: wind.dir}, uSpan: {value: span},
-    uBody: {value: new THREE.Vector4(center.x, center.z, span * .2, 1)}, uSunW: {value: sunDir}, uSunCol: {value: new THREE.Vector3()}, uCover: {value: .45},
+    uBodies: {value: Array.from({length: 6}, (_, i) => i ? new THREE.Vector4(0, 0, 1, 0) : new THREE.Vector4(center.x, center.z, span * .2, 1))}, uSunW: {value: sunDir}, uSunCol: {value: new THREE.Vector3()}, uCover: {value: .45},
   };
   const terrainMat = new THREE.MeshStandardMaterial({vertexColors: true, roughness: 1});
   terrainMat.onBeforeCompile = sh => {                                // ground gets the same moving cloud shadows
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWorldT = (modelMatrix * vec4(transformed, 1.)).xyz;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT; uniform vec3 uSunW;\n' + NOISE_GLSL + CLOUD_GLSL)
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= 1. - .5 * cloudDensity(vWorldT.xz + uSunW.xz / max(uSunW.y, .1) * uSpan * ' + CLOUD_Y + '.);');
+      .replace('#include <color_fragment>', `#include <color_fragment>
+      { // ground detail: moss carpets on the damp green parts, soil crumbs, pebbles, leaf litter specks
+        vec2 q = vWorldT.xz / uSpan;
+        float fine = fbm4(q * 38.), mid = fbm4(q * 9. + 3.), crumb = hash21(floor(q * 320.)), peb = hash21(floor(q * 140.) + 7.);
+        float green = clamp((diffuseColor.g - diffuseColor.r) * 7., 0., 1.);
+        float moss = smoothstep(.42, .66, fbm4(q * 2.4 + 17.)) * green;
+        vec3 mossCol = pow(mix(vec3(.09, .2, .05), vec3(.26, .43, .11), fine) * (.8 + .4 * crumb), vec3(2.2));
+        diffuseColor.rgb *= .72 + .56 * mid;
+        diffuseColor.rgb = mix(diffuseColor.rgb, mossCol, moss * .85);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.34, .32, .28), step(.985, peb) * (1. - moss));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.2, .12, .05), step(.97, crumb) * .5 * (1. - moss));
+      }
+      diffuseColor.rgb *= 1. - .5 * cloudDensity(vWorldT.xz + uSunW.xz / max(uSunW.y, .1) * uSpan * ${CLOUD_Y}.);`);
   };
   const terrain = new THREE.Mesh(tg, terrainMat); terrain.receiveShadow = true; terrain.matrixAutoUpdate = false; group.add(terrain);
 
   // ---- vegetation kinds
-  const grassGeo = geo([{...ribbon(4, .85), part: 0}]);
+  function bladeProfile(rows, taper){                                // 3 verts per row (left, midrib pushed back, right) + tip: lit/shaded halves, like a folded leaf
+  const pos = [], idx = [];
+  for(let i = 0; i < rows; i++){ const t = i / rows, hw = .5 * (1 - Math.pow(t, 1.5) * taper); pos.push(-hw, t, 0, 0, t, -hw * .5, hw, t, 0); }
+  pos.push(0, 1, -.02);
+  for(let i = 0; i < rows - 1; i++){ const a = i * 3, b = a + 3; idx.push(a, a + 1, b, a + 1, b + 1, b, a + 1, a + 2, b + 1, a + 2, b + 2, b + 1); }
+  const a = (rows - 1) * 3, tip = rows * 3; idx.push(a, a + 1, tip, a + 1, a + 2, tip);
+  return {pos, idx};
+}
+const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
   const petalAngles = [...Array(8).keys()].map(i => i / 8 * Math.PI * 2), headParts = [];
   { const pos = [], idx = []; petalAngles.forEach((a, i) => { const ca = Math.cos(a), sa = Math.sin(a), l = Math.cos(a + .39), s2 = Math.sin(a + .39), r = Math.cos(a - .39), s3 = Math.sin(a - .39), b = i * 4;
       pos.push(0, 0, 0,  .55 * l, .1, .55 * s2,  ca, .18, sa,  .55 * r, .1, .55 * s3); idx.push(b, b + 1, b + 2, b, b + 2, b + 3); });
@@ -253,7 +287,7 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
   const AUT = [[.55, .3, .1], [.7, .5, .12], [.45, .25, .08], [.6, .55, .2], [.38, .3, .1]];             // leaf browns / ochres
   const kinds = {grass: {geo: grassGeo, mat: grassMat, N: 4200, R: K}, flowers: {geo: flowerGeo, mat: plantMat, N: 320, R: KI}, docks: {geo: dockGeo, mat: plantMat, N: 10, R: KI},
     weeds: {geo: rosGeo, mat: rosMat, N: 60, R: KI}, leaves: {geo: leafQuad, mat: leafMat, N: 110, R: KI}};
-  const chunks = [], H = [.035, .075, .16], W = [.0032, .0036, .0042], FLEX = [.9, 1, 1.15];
+  const chunks = [], H = [.035, .075, .16], WR = [.085, .07, .06], FLEX = [.9, 1, 1.15];     // blade width is a fraction of its height
   const slopeAt = (x, z, y) => Math.hypot(height(x + span * .02, z) - y, height(x, z + span * .02) - y) / (span * .02);
   const make = (kind, ix, iz, x0, z0, build) => {
     const k = kinds[kind], rng = mulberry(hashStr(`${seed}:${kind}:${ix}:${iz}`)), sx = rng(), sz = rng();
@@ -279,7 +313,7 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
         for(let j = 0; j < tuft && count() < N; j++){
           const a = rng() * 6.2832, r = tuft > 1 ? span * .02 * Math.sqrt(rng()) : 0, x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r, y = height(x, z);
           const hh = span * H[sp] * (.65 + .7 * rng()) * (sp === 2 ? .8 + m * .5 : 1) * (tuft > 1 ? 1 : .8);
-          put(x, z, y, [hh, span * W[sp] * (.8 + .4 * rng()), rng(), rng() * 6.2832], [sp, clamp(rng() * .55 + pn * .55 - .15, 0, 1), FLEX[sp], rng() * .5 + (1 - m) * .5]);
+          put(x, z, y, [hh, hh * WR[sp] * (.8 + .4 * rng()), rng(), rng() * 6.2832], [sp, clamp(rng() * .55 + pn * .55 - .15, 0, 1), FLEX[sp], rng() * .5 + (1 - m) * .5]);
         }
       } });
     if(!inner) continue;
@@ -316,7 +350,7 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
 
   const api = {group, wind, sunDir, sunColor: sunCol, skyColor: new THREE.Color(), groundColor: new THREE.Color(.33, .25, .15), ground: height, params: P,
     setParams(p){
-      Object.assign(P, p); wind.strength = P.wind / 100; wind.speed = .4 + P.speed / 50; wind.gust = P.gust / 100; wind.setAngle(P.dir); U.uCover.value = P.clouds / 100 * .75;
+      Object.assign(P, p); wind.strength = P.wind / 100 * 1.5; wind.speed = .4 + P.speed / 50; wind.gust = P.gust / 100; wind.setAngle(P.dir); U.uCover.value = P.clouds / 100 * .75;
       U.uHeight.value = .35 + P.height / 50 * .65; U.uDry.value = P.dry / 100;
       const e = P.sun * Math.PI / 180, az = -.6, k = smooth(3, 40, P.sun);                  // sun elevation tints light, sky, clouds and fog
       sunDir.set(Math.cos(e) * Math.cos(az), Math.sin(e), Math.cos(e) * Math.sin(az)).normalize();
@@ -335,6 +369,7 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
         m.geometry.instanceCount = Math.floor(m.userData.full * lod * clamp(share[m.userData.kind], 0, 1)); m.visible = m.geometry.instanceCount > 0;
       }
     },
+    setBodies(list){ list.slice(0, 5).forEach((b, i) => U.uBodies.value[i + 1].set(b.x, b.z, b.r, b.k ?? .7)); for(let i = list.length; i < 5; i++) U.uBodies.value[i + 1].set(0, 0, 1, 0); },
     stats(){ const o = {}; for(const m of chunks){ const k = m.userData.kind; o[k] = o[k] || {buffered: 0, drawn: 0}; o[k].buffered += m.userData.full; o[k].drawn += m.visible ? m.geometry.instanceCount : 0; } return o; },
     dispose(){ scene.fog = null; scene.remove(group); group.traverse(o => { o.geometry?.dispose(); o.material?.dispose?.(); }); },
   };
