@@ -360,7 +360,7 @@ function loadModel(it, file){
 
 function open(id){
   const it = lib.find(i => i.id===id); if(!it){ location.hash = ''; return; }
-  if(gated(id)){ setView('lib'); askAge(id); return; }
+  if(ADULT.has(id) && passed !== id){ setView('lib'); askAge(id); return; }
   setView('viewer'); cur = it; token++; disposeModel();
   $('#title').textContent = `${LABEL[it.type]||it.type} / ${it.name}`;
   document.title = `${it.name} · Motion Library`;
@@ -476,16 +476,15 @@ lb.ondblclick = () => lbShow(lbI);
 // ---------- library (visual grid) ----------
 let lib = [], filter = 'all';
 const ADULT = new Set();                                    // ids listed in adult.json (edit that file to change the list)
-let ok18 = false; try{ ok18 = sessionStorage.getItem('ok18') === '1'; }catch(e){}
-const gated = id => ADULT.has(id) && !ok18;
+let passed = null;                                          // the one item the user just confirmed; asked again next time
 function askAge(id){
   $('#gate').style.display = 'flex';
-  $('#gYes').onclick = () => { ok18 = true; try{ sessionStorage.setItem('ok18','1'); }catch(e){} $('#gate').style.display = 'none'; renderLib(); open(id); };
+  $('#gYes').onclick = () => { passed = id; $('#gate').style.display = 'none'; open(id); };
   $('#gNo').onclick = () => { $('#gate').style.display = 'none'; location.hash = ''; };
 }
 function setView(v){
   view = v; $('#lib').hidden = $('#hLib').hidden = v!=='lib'; $('#viewer').hidden = $('#hView').hidden = v!=='viewer';
-  if(v==='lib'){ document.title = 'Motion Library'; disposeModel(); cur = null; }
+  if(v==='lib'){ document.title = 'Motion Library'; disposeModel(); cur = null; passed = null; }
   resize();
 }
 function thumbOf(it){
@@ -497,7 +496,7 @@ function card(it){
   const m = pickModel(it), th = thumbOf(it);
   const tag = m ? ext(m.n) : it.files.some(f => AUD.includes(ext(f.n))) ? 'audio' : it.type==='reference' ? 'images' : ext(it.files.find(f => /blend|max|vmd/.test(ext(f.n)))?.n || it.files[0]?.n || '');
   const ph = m ? '' : tag.toUpperCase();
-  const ad = gated(it.id);
+  const ad = ADULT.has(it.id);                  // thumbnails of these stay blurred always
   return `<div class="card ${ad ? 'adult' : ''}" data-id="${it.id}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${it.id}" ${th ? `style="--b:url('${th}')"` : ''}>${th ? `<img loading="lazy" src="${th}" onload="this.classList.add('ld')">` : `<span class="ph">${ph}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
     <div class="meta"><b title="${it.name}">${it.name}</b><span>${LABEL[it.type]||it.type} · ${tag}</span></div></div>`;
 }
