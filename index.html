@@ -199,12 +199,13 @@ async function fixTextures(obj, it){
   const key = n => n.toLowerCase().replace(/\.[^.]+$/, '').replace(/[^a-z].*$/, '');
   const fx = FIX[it.id];
   const meshes = []; obj.traverse(o => o.isMesh && meshes.push(o));
-  if(fx) for(const o of meshes){ const f = byName(fx[o.name] || fx['*']); if(f) [].concat(o.material).forEach(m => put(m, 'map', f)); }
-  else {
+  const done = new Set();                                   // materials set by an explicit rule are left alone below
+  if(fx) for(const o of meshes){ const f = byName(fx[o.name] || fx['*']); if(f) [].concat(o.material).forEach(m => { put(m, 'map', f); done.add(m); }); }
+  {
     const mats = new Set(meshes.flatMap(o => [].concat(o.material)));
     const color = imgs.find(f => role(f.n)==='map') || (imgs.length===1 ? imgs[0] : null), normal = imgs.find(f => role(f.n)==='normalMap');
     for(const m of mats){
-      if(m.map?.image) continue;
+      if(done.has(m) || m.map?.image) continue;
       const mine = m.name ? imgs.filter(f => key(f.n) && key(f.n) === key(m.name)) : [];
       if(mine.length) for(const f of mine){ const r = role(f.n); if(r && !m[r]?.image) put(m, r, f); }
       else if(mats.size === 1){ if(color) put(m, 'map', color); if(normal && !m.normalMap?.image) put(m, 'normalMap', normal); }
