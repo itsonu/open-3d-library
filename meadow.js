@@ -137,7 +137,7 @@ const PLANT_VS = /* glsl */`                                            // flowe
     // tilt organs with the stem's lean at the attachment point
     o.xz += (a.xz) * 0.; p = a + o; vegNormal = normalize(vec3(0., 1., 0.) + vec3(o.x, 0., o.z) * .2 / max(size, 1e-4));
     if(part < 1.5) vCol3 = aColor * (.82 + .3 * (1. - length(position.xz)));
-    else if(part < 2.5) vCol3 = aMisc.x > 2.5 && aMisc.x < 3.5 ? vec3(.1, .07, .05) : vec3(.93, .72, .12);
+    else if(part < 2.5) vCol3 = aMisc.x > 4.5 ? vec3(.3, .16, .07) : aMisc.x > 2.5 && aMisc.x < 3.5 ? vec3(.1, .07, .05) : vec3(.93, .72, .12);      // cattail brown / poppy dark / stamen yellow
     else { vCol3 = mix(vec3(.14, .3, .07), vec3(.26, .45, .12), aMisc.y) * (.7 + .5 * position.y / max(size, 1e-4) * size + .0); vLeaf = 0.; vTipT = .3; } }
   transformed = aOff + p; vWorld = transformed;
 `;
@@ -158,6 +158,14 @@ const LEAF_VS = /* glsl */`                                             // falle
   o.y += (.01 + lift * .25 * abs(sin(uTime * 4. + ph * 30.))) * size; o.xz += uWindDir * lift * size * .6 * sin(uTime * 2. + ph * 10.);
   transformed = aOff + o; vWorld = transformed; vLeaf = 1.; vLeafUv = position.xz * .5 / max(.5, 1.) + .5; vTipT = .2; vCol3 = aColor;
   vegNormal = normalize(vec3(0., 1., 0.) + vec3(sin(spin), 0., cos(spin)) * .12);
+`;
+const PAD_VS = /* glsl */`                                              // lily pads: float on the water, bob gently
+  float size = aParam.y, yaw = aParam.w, ph = aParam.z, rr = length(position.xz);
+  vec3 o = vec3(position.x, 0., position.z) * size; o.xz = rot2(o.xz, -yaw);
+  o.y += (rr * rr * .07 + .012) * size + sin(uTime * 1.2 + ph * 6.2831) * uSpan * .0012 + sin(uTime * 2.3 + ph * 13.) * uSpan * .0008 * rr;
+  transformed = aOff + o; vWorld = transformed; vLeaf = 0.; vLeafUv = vec2(0.); vTipT = .25;
+  vCol3 = mix(vec3(.08, .24, .06), vec3(.2, .42, .1), rr) * aColor.r * (.92 + .1 * sin(atan(position.z, position.x) * 14.));
+  vegNormal = vec3(0., 1., 0.);
 `;
 const FALL_VS = /* glsl */`                                             // leaves in the air: fall, drift with the wind, tumble; wrap around the model
   float size = aParam.y, ph = aParam.z, box = uSpan * 5.;
@@ -187,7 +195,7 @@ void main(){ vec3 d = normalize(vDir); float h = clamp(d.y, 0., 1.);
   col = mix(col, uHorizon * .96, smoothstep(0., -.18, d.y));
   gl_FragColor = vec4(col, 1.); }`;
 
-export const MEADOW_DEFAULTS = {height: 50, density: 70, wind: 45, speed: 50, gust: 35, dir: 35, dry: 25, rough: 35, sun: 42, flowers: 70, weeds: 70, leaves: 60, fall: 60, clouds: 45, weather: 0, season: 33};
+export const MEADOW_DEFAULTS = {pond: 70, height: 50, density: 70, wind: 45, speed: 50, gust: 35, dir: 35, dry: 25, rough: 35, sun: 42, flowers: 70, weeds: 70, leaves: 60, fall: 60, clouds: 45, weather: 0, season: 33};
 
 // ---------------------------------------------------------------- geometries (all "unit" sized; per-instance attributes scale them)
 function geo(parts){                                               // parts: [{pos[], idx[], part, attach[]}] -> one indexed BufferGeometry
@@ -219,17 +227,22 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
 
   // ---- terrain
   const amp = () => span * .09 * P.rough / 100;
-  const height = (x, z) => { const r = Math.hypot(x - center.x, z - center.z), flat = smooth(span * .3, span * 1.1, r);
+  const prn = mulberry(hashStr(seed + 'pond')), pa = Math.PI + (prn() - .5) * 1.4;           // a natural pond, behind the model on a seeded side
+  const pond = {cx: center.x + Math.sin(pa) * span * 2.15, cz: center.z + Math.cos(pa) * span * 2.15, R: span * (.85 + prn() * .25), wl: y0 - span * .03, depth: span * .16, p1: prn() * 6.28, p2: prn() * 6.28};
+  const pondD = (x, z) => { const dx = x - pond.cx, dz = z - pond.cz, a = Math.atan2(dz, dx); return Math.hypot(dx, dz) / (pond.R * (1 + .16 * Math.sin(3 * a + pond.p1) + .09 * Math.sin(5 * a + pond.p2))); };   // <1 inside, irregular outline
+  const land = (x, z) => { const r = Math.hypot(x - center.x, z - center.z), flat = smooth(span * .3, span * 1.1, r);
     return y0 + (noise.fbm(x / span * .9, z / span * .9) - .5) * 2 * amp() * flat + (noise.fbm(x / span * .25 + 9, z / span * .25) - .4) * span * .5 * smooth(span * 4, span * 9, r); };
+  const height = (x, z) => { const h = land(x, z), d = pondD(x, z); if(d > 1.5) return h; return h - pond.depth * Math.pow(1 - smooth(.15, 1.5, d), 1.6); };       // bowl-shaped basin
   const wet = (x, z) => clamp(moist.fbm(x / span * .7 + 3, z / span * .7 - 5) * 1.5 - .15, 0, 1);
   const bare = (x, z) => 1 - smooth(.2, .5, clear.fbm(x / span * 1.4 + 11, z / span * 1.4 - 3));           // 1 = bare soil patch (clearing)
-  const T = span * 14, SEG = 160, tg = new THREE.PlaneGeometry(T * 2, T * 2, SEG, SEG); tg.rotateX(-Math.PI / 2);
+  const T = span * 12, SEG = 300, tg = new THREE.PlaneGeometry(T * 2, T * 2, SEG, SEG); tg.rotateX(-Math.PI / 2);
   const tp = tg.attributes.position, col = new Float32Array(tp.count * 3), c = new THREE.Color();
   const soil = [.33, .25, .15], lush = [.2, .34, .11], dry = [.55, .5, .24];
   for(let i = 0; i < tp.count; i++){
     const x = tp.getX(i) + center.x, z = tp.getZ(i) + center.z, y = height(x, z); tp.setXYZ(i, x, y, z);
     const m = wet(x, z), dr = clamp(P.dry / 100 + (.5 - m) * .5, 0, 1), g = lush.map((v, k) => v + (dry[k] - v) * dr), s = smooth(.1, .45, m) * (1 - .75 * bare(x, z));
-    c.setRGB(soil[0] + (g[0] - soil[0]) * s, soil[1] + (g[1] - soil[1]) * s, soil[2] + (g[2] - soil[2]) * s, THREE.SRGBColorSpace); col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
+    const mud = smooth(1.5, .95, pondD(x, z)), mc = [.2, .16, .1];             // wet mud banks around the water
+    c.setRGB((soil[0] + (g[0] - soil[0]) * s) * (1 - mud) + mc[0] * mud, (soil[1] + (g[1] - soil[1]) * s) * (1 - mud) + mc[1] * mud, (soil[2] + (g[2] - soil[2]) * s) * (1 - mud) + mc[2] * mud, THREE.SRGBColorSpace); col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
   }
   tg.setAttribute('color', new THREE.BufferAttribute(col, 3)); tg.computeVertexNormals();
 
@@ -310,7 +323,7 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
   };
   for(let ix = -K; ix <= K; ix++) for(let iz = -K; iz <= K; iz++){
     const x0 = center.x + (ix - .5) * cs, z0 = center.z + (iz - .5) * cs, inner = Math.abs(ix) <= KI && Math.abs(iz) <= KI;
-    const ok = (x, z, rng, p) => rng() < p && Math.hypot(x - center.x, z - center.z) > span * .05;
+    const ok = (x, z, rng, p) => rng() < p && Math.hypot(x - center.x, z - center.z) > span * .05 && pondD(x, z) > 1.08;
     // grass: clumps ("tufts") with a loose scatter between them; thinner on slopes, dry ground and in clearings
     make('grass', ix, iz, x0, z0, ({rng, pt, put, count, N}) => {
       for(let i = 1; i < N * 3 && count() < N; i++){
@@ -348,35 +361,164 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
     g.setAttribute('aOff', new THREE.InstancedBufferAttribute(off, 3)); g.setAttribute('aParam', new THREE.InstancedBufferAttribute(prm, 4)); g.setAttribute('aMisc', new THREE.InstancedBufferAttribute(msc, 4)); g.setAttribute('aColor', new THREE.InstancedBufferAttribute(clr, 3));
     g.instanceCount = N; const mesh = new THREE.Mesh(g, fallMat); mesh.frustumCulled = false; mesh.userData = {full: N, kind: 'fall'}; group.add(mesh); chunks.push(mesh); }
 
-  // ---- rain: streaks in a box around the camera, only drawn while it rains
-  const RN = 3000, rg = new THREE.InstancedBufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute([-.5, 0, 0, .5, 0, 0, -.5, 1, 0, .5, 1, 0], 3)); rg.setIndex([0, 1, 2, 1, 3, 2]);
+  // ---- rain, anime style: hair-thin tapered streaks (blue tail -> white head, hard-edged alpha bands), plus cel-shaded
+  //      ripple rings and impact flashes where drops hit the ground.
+  const RN = 3600, rg = new THREE.InstancedBufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute([-.5, 0, 0, .5, 0, 0, -.5, 1, 0, .5, 1, 0], 3)); rg.setIndex([0, 1, 2, 1, 3, 2]);
   { const o = new Float32Array(RN * 3), r = mulberry(hashStr(seed + 'rain')); for(let i = 0; i < RN; i++) o.set([r(), r(), r()], i * 3); rg.setAttribute('aSeed', new THREE.InstancedBufferAttribute(o, 3)); rg.instanceCount = RN; }
   const rain = new THREE.Mesh(rg, new THREE.ShaderMaterial({uniforms: {uTime: U.uTime, uSpan: U.uSpan, uRain: U.uRain, uCam: U.uCamPos, uWindDir: U.uWindDir}, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    vertexShader: `attribute vec3 aSeed; uniform float uTime, uSpan, uRain; uniform vec3 uCam; uniform vec2 uWindDir; varying float vA;
-      void main(){ float B = uSpan * 3.5, H = uSpan * 2.2; vec3 base = vec3((aSeed.x - .5) * B, 0., (aSeed.z - .5) * B);
-        float y = fract(aSeed.y - uTime * (1.2 + aSeed.x * .5)) * H; vec3 wp = uCam + base; wp.xz += uWindDir * y * .25; wp.y = uCam.y - H * .4 + y;
-        vec4 mv = viewMatrix * vec4(wp, 1.); vec3 up = (viewMatrix * vec4(uWindDir.x * .25, 1., uWindDir.y * .25, 0.)).xyz; mv.xyz += vec3(position.x * uSpan * .0035, 0., 0.) + normalize(up) * position.y * uSpan * .075;
-        vA = uRain * (.12 + aSeed.x * .25) * (1. - smoothstep(B * .3, B * .5, length(base.xz))); gl_Position = projectionMatrix * mv; }`,
-    fragmentShader: `varying float vA; void main(){ gl_FragColor = vec4(.78, .85, .95, vA); }`}));
+    vertexShader: `attribute vec3 aSeed; uniform float uTime, uSpan, uRain; uniform vec3 uCam; uniform vec2 uWindDir; varying float vA; varying vec2 vUv;
+      void main(){ float B = uSpan * 3.5, H = uSpan * 2.2, sz = .55 + fract(aSeed.x * 57.3 + aSeed.z * 13.1) * .9;          // a few drops are bigger / nearer-feeling
+        vec3 base = vec3((aSeed.x - .5) * B, 0., (aSeed.z - .5) * B);
+        float y = fract(aSeed.y - uTime * (1.5 + aSeed.x * .6)) * H; vec3 wp = uCam + base; wp.xz += uWindDir * y * .3; wp.y = uCam.y - H * .4 + y;
+        vec4 mv = viewMatrix * vec4(wp, 1.); vec3 dirV = normalize((viewMatrix * vec4(uWindDir.x * .3, 1., uWindDir.y * .3, 0.)).xyz);   // streak follows the wind slant
+        float tw = .25 + .75 * position.y;                                                                                      // taper: thin tail, fuller head
+        mv.xyz += vec3(position.x * uSpan * .0016 * tw * sz, 0., 0.) + dirV * position.y * uSpan * .085 * sz;
+        vA = uRain * (.35 + .5 * fract(aSeed.x * 91.7)) * (1. - smoothstep(B * .3, B * .5, length(base.xz))); vUv = vec2(position.x + .5, position.y);
+        gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `varying float vA; varying vec2 vUv;
+      void main(){ float across = 1. - abs(vUv.x - .5) * 2., t = vUv.y;
+        float a = vA * smoothstep(0., .35, across) * smoothstep(0., .75, t);
+        a = floor(a * 4. + .5) / 4.;                                                      // cel bands: hard-edged, no soft airbrushing
+        if(a < .05) discard;
+        vec3 col = mix(vec3(.42, .68, .95), vec3(.82, .93, 1.), smoothstep(.55, 1., t));    // translucent blue tail -> pale head (never pure white)
+        gl_FragColor = vec4(col, a * .75); }`}));
   rain.frustumCulled = false; rain.visible = false; group.add(rain);
+  const SN = 900, sg = new THREE.InstancedBufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0], 3)); sg.setIndex([0, 1, 2, 1, 3, 2]);
+  { const pos = new Float32Array(SN * 3), sd = new Float32Array(SN * 3), r = mulberry(hashStr(seed + 'splash'));
+    for(let i = 0; i < SN; i++){ const a = r() * 6.2832, d = Math.sqrt(r()) * span * 3.4, x = center.x + Math.cos(a) * d, z = center.z + Math.sin(a) * d; if(pondD(x, z) < 1.1){ i--; continue; } pos.set([x, height(x, z), z], i * 3); sd.set([r(), .7 + r() * .9, r()], i * 3); }
+    sg.setAttribute('aPos', new THREE.InstancedBufferAttribute(pos, 3)); sg.setAttribute('aSd', new THREE.InstancedBufferAttribute(sd, 3)); sg.instanceCount = SN; }
+  const splash = new THREE.Mesh(sg, new THREE.ShaderMaterial({uniforms: {uTime: U.uTime, uSpan: U.uSpan, uRain: U.uRain}, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    vertexShader: `attribute vec3 aPos; attribute vec3 aSd; uniform float uTime, uSpan; varying vec2 vUv; varying float vT;
+      void main(){ float t = fract(uTime * (.6 + aSd.y * .5) + aSd.x * 7.); vT = t; vUv = position.xy;
+        float R = uSpan * (.012 + .016 * aSd.z) * (.25 + .75 * t) * aSd.y * 3.2;
+        vec3 w = aPos + vec3(position.x * R, uSpan * .02, position.y * R * .8);                                  // squashed circle lying on the ground
+        gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.); }`,
+    fragmentShader: `uniform float uRain; varying vec2 vUv; varying float vT;
+      void main(){ float r = length(vUv), edge = max(.14 - .1 * vT, .035);
+        float ring = smoothstep(edge, 0., abs(r - vT * .95)), inner = smoothstep(edge * .8, 0., abs(r - vT * .6)) * .75;
+        float flash = smoothstep(.45, 0., r) * smoothstep(.22, 0., vT);                                              // brief white impact spark
+        float a = (ring + inner + flash) * (1. - vT) * uRain;
+        a = step(.28, a) * min(1., a * 2.);                                                                         // cel: hard-edged rings
+        if(a < .05) discard;
+        vec3 col = mix(vec3(.45, .7, .95), vec3(.85, .94, 1.), flash);
+        gl_FragColor = vec4(col, a * .6); }`}));
+  splash.frustumCulled = false; splash.visible = false; group.add(splash);
 
   // ---- sky dome (follows the camera) with clouds
   const skyU = {uSun: {value: sunDir}, uSunCol: {value: U.uSunCol.value}, uHorizon: {value: new THREE.Vector3()}, uZenith: {value: new THREE.Vector3()}, uCam: {value: new THREE.Vector3()}, uCloudCol: {value: new THREE.Vector3(.97, .97, .98)},
     uTime: U.uTime, uCover: U.uCover, uSpan: U.uSpan, uSpeed: U.uSpeed, uWindDir: U.uWindDir};
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 20), new THREE.ShaderMaterial({vertexShader: SKY_VS, fragmentShader: SKY_FS, side: THREE.BackSide, depthWrite: false, depthTest: false, uniforms: skyU}));
   dome.renderOrder = -10; dome.frustumCulled = false; group.add(dome);
+  // ---- pond water: translucent (depth baked from the real terrain: clear in the shallows, tinted when deep), reflects the sky at grazing
+  //      angles, banded "anime" ripples from raindrops, thin pale shoreline foam.
+  const DN = 128, half = pond.R * 1.9, dd = new Uint8Array(DN * DN * 4);
+  for(let j = 0; j < DN; j++) for(let i = 0; i < DN; i++){ const x = pond.cx + ((i + .5) / DN * 2 - 1) * half, z = pond.cz + ((j + .5) / DN * 2 - 1) * half, d = clamp((pond.wl - height(x, z)) / pond.depth, 0, 1); dd.set([d * 255, 0, 0, 255], (j * DN + i) * 4); }
+  const depthTex = new THREE.DataTexture(dd, DN, DN, THREE.RGBAFormat); depthTex.magFilter = depthTex.minFilter = THREE.LinearFilter; depthTex.needsUpdate = true;
+  const waterU = {uTime: U.uTime, uSpan: U.uSpan, uRain: U.uRain, uCam: U.uCamPos, uSun: skyU.uSun, uSunCol: skyU.uSunCol, uHorizon: skyU.uHorizon, uZenith: skyU.uZenith, uDepth: {value: depthTex}, uBox: {value: new THREE.Vector3(pond.cx, pond.cz, half)}, uMaxD: {value: pond.depth}, uFog: {value: new THREE.Vector2(1, 2)}};
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(half * 2, half * 2).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({uniforms: waterU, transparent: true, depthWrite: false,
+    vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform float uTime, uSpan, uRain, uMaxD; uniform vec3 uCam, uSun, uSunCol, uHorizon, uZenith, uBox; uniform vec2 uFog; uniform sampler2D uDepth; varying vec3 vW;
+      float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float ringH(vec2 p){                                                       // expanding rings from random drops on a jittered grid
+        float act = clamp(uRain * .9 + .07, 0., 1.), s = 0.; vec2 q = p / (uSpan * .07), cell = floor(q), f = fract(q);
+        for(int j = -1; j <= 1; j++) for(int i = -1; i <= 1; i++){
+          vec2 id = cell + vec2(float(i), float(j)); float a = h21(id), b = h21(id + 17.3), c = h21(id + 5.1); if(a > act) continue;
+          float t = fract(uTime * (.45 + c * .5) + b * 9.); vec2 d = vec2(float(i), float(j)) + vec2(b, c) * .8 + .1 - f; float r = length(d);
+          s += (exp(-pow((r - t * 1.1) * 7., 2.)) + .6 * exp(-pow((r - t * .6) * 9., 2.))) * (1. - t) * (1. - t); }
+        return s; }
+      void main(){
+        vec2 uv = (vW.xz - uBox.xy) / (uBox.z * 2.) + .5; float depth = texture2D(uDepth, uv).r;           // 0 shore .. 1 deepest
+        if(depth < .004) discard;
+        vec2 p = vW.xz; float e = uSpan * .004, h0 = ringH(p);
+        vec3 n = normalize(vec3(ringH(p + vec2(e, 0.)) - h0, .09, ringH(p + vec2(0., e)) - h0));
+        n.xz += vec2(sin(vW.x / uSpan * 37. + uTime * 1.3), cos(vW.z / uSpan * 29. - uTime)) * .018; n = normalize(n);
+        vec3 V = normalize(uCam - vW), R = reflect(-V, n);
+        vec3 sky = mix(uHorizon, uZenith, pow(clamp(R.y, 0., 1.), .55));
+        float fres = .04 + .96 * pow(1. - max(dot(n, V), 0.), 4.);
+        vec3 body = mix(vec3(.2, .42, .38), vec3(.03, .15, .2), smoothstep(0., .8, depth));                   // shallow green-teal -> deep blue
+        vec3 col = mix(body, sky, fres * .85) + uSunCol * pow(max(dot(R, uSun), 0.), 500.) * 2.5;
+        col += vec3(.7, .88, 1.) * smoothstep(.5, .8, h0) * .35;                                              // ripple crests catch light (soft, tinted)
+        col = mix(col, floor(col * 8. + .5) / 8., .5);                                                         // light cel banding
+        float foam = smoothstep(.1, .0, depth) * smoothstep(.0, .02, depth) * (.5 + .5 * sin(vW.x * 9. / uSpan + uTime));
+        col = mix(col, vec3(.8, .9, .9), foam * .55);
+        col = mix(col, uHorizon, smoothstep(uFog.x, uFog.y, distance(uCam, vW)));
+        float alpha = clamp(1. - exp(-depth * 4.5), 0., 1.) * mix(.55, .9, fres) + foam * .25;                // see-through shallows, tinted deeps
+        gl_FragColor = vec4(col, alpha); }`}));
+  water.position.set(pond.cx, pond.wl, pond.cz); water.renderOrder = 2; water.frustumCulled = false; group.add(water);
+
+  // ---- water plants: lily pads, lotus (leaves + flowers), cattails and shore reeds
+  const aquatic = [], depthAt = (x, z) => pond.wl - height(x, z);
+  const staticKind = (geo, mat, n, fill) => {
+    const rng = mulberry(hashStr(seed + ':aq:' + aquatic.length)), off = new Float32Array(n * 3), prm = new Float32Array(n * 4), msc = new Float32Array(n * 4), clr = new Float32Array(n * 3); let m = 0;
+    const put = (x, y, z, p, mi, cl) => { off.set([x, y, z], m * 3); prm.set(p, m * 4); msc.set(mi, m * 4); if(cl) clr.set(cl, m * 3); m++; };
+    fill({rng, put, count: () => m, n});
+    const g = new THREE.InstancedBufferGeometry(); g.index = geo.index; for(const a of ['position', 'aPart', 'aAttach']) g.setAttribute(a, geo.attributes[a]);
+    g.setAttribute('aOff', new THREE.InstancedBufferAttribute(off.subarray(0, m * 3), 3)); g.setAttribute('aParam', new THREE.InstancedBufferAttribute(prm.subarray(0, m * 4), 4));
+    g.setAttribute('aMisc', new THREE.InstancedBufferAttribute(msc.subarray(0, m * 4), 4)); g.setAttribute('aColor', new THREE.InstancedBufferAttribute(clr.subarray(0, m * 3), 3));
+    g.instanceCount = m; const mesh = new THREE.Mesh(g, mat); mesh.frustumCulled = false; mesh.receiveShadow = true; group.add(mesh); aquatic.push({mesh, full: m}); };
+  const inPond = (x, z, lo, hi) => { const d = pondD(x, z); return d > lo && d < hi; };
+  { // geometry
+    const padPos = [0, 0, 0], padIdx = [], SEGS = 20; for(let i = 0; i <= SEGS; i++){ const a = .32 + i / SEGS * (Math.PI * 2 - .32); padPos.push(Math.cos(a), 0, Math.sin(a)); } for(let i = 1; i <= SEGS; i++) padIdx.push(0, i, i + 1);
+    const padGeo = geo([{pos: padPos, idx: padIdx, part: 3}]);
+    const ring = (R, y, k) => ({R, y, k});
+    const cupPos = [], cupIdx = [], RS = [0, .35, .7, 1], NS = 18;                                     // lotus leaf: shallow bowl with a wavy rim
+    RS.forEach((r, ri) => { for(let i = 0; i < NS; i++){ const a = i / NS * Math.PI * 2, rr = r * (ri === 3 ? 1 + .07 * Math.sin(a * 7) : 1); cupPos.push(Math.cos(a) * rr, rr * rr * .22, Math.sin(a) * rr); } });
+    for(let ri = 0; ri < 3; ri++) for(let i = 0; i < NS; i++){ const a = ri * NS + i, b = ri * NS + (i + 1) % NS, c = (ri + 1) * NS + i, d = (ri + 1) * NS + (i + 1) % NS; cupIdx.push(a, c, b, b, c, d); }
+    const lotusLeaf = geo([{...ribbon(4, .1, 1), part: 0}, {pos: cupPos, idx: cupIdx, part: 3, attach: Array(cupPos.length / 3).fill(1)}]);
+    const fpos = [], fidx = []; [[9, 1, .3, .42], [7, .9, .85, .3], [5, .75, 1.2, .26]].forEach(([n, L, elev, w]) => { for(let i = 0; i < n; i++){ const th = i / n * Math.PI * 2 + elev, ce = Math.cos(elev), se = Math.sin(elev);
+      const tip = [Math.cos(th) * L * ce, L * se * .8 + .1, Math.sin(th) * L * ce], mid = tip.map(v => v * .55), side = [-Math.sin(th) * w * L, 0, Math.cos(th) * w * L], b = fpos.length / 3;
+      fpos.push(0, 0, 0, mid[0] + side[0], mid[1], mid[2] + side[2], ...tip, mid[0] - side[0], mid[1], mid[2] - side[2]); fidx.push(b, b + 1, b + 2, b, b + 2, b + 3); } });
+    const cpos = [], cidx = []; for(let i = 0; i < 7; i++){ const a = i / 7 * Math.PI * 2; cpos.push(Math.cos(a) * .22, .3, Math.sin(a) * .22); cidx.push(i, (i + 1) % 7, 7); } cpos.push(0, .36, 0);
+    const lotusFlower = geo([{...ribbon(4, .1, 1), part: 0}, {pos: fpos, idx: fidx, part: 1, attach: Array(fpos.length / 3).fill(1)}, {pos: cpos, idx: cidx, part: 2, attach: Array(cpos.length / 3).fill(1)}]);
+    const hp = [], hi = []; for(let i = 0; i < 6; i++){ const a = i / 6 * Math.PI * 2; hp.push(Math.cos(a) * .2, 0, Math.sin(a) * .2, Math.cos(a) * .2, 1, Math.sin(a) * .2); } for(let i = 0; i < 6; i++){ const a = i * 2, b = (i + 1) % 6 * 2; hi.push(a, a + 1, b, a + 1, b + 1, b); }
+    const cattail = geo([{...ribbon(4, .1, 1), part: 0}, {pos: hp, idx: hi, part: 2, attach: Array(hp.length / 3).fill(1)}]);
+    const padMat = vegMaterial(U, PAD_VS, 'pad'), reedGeo = grassGeo;
+    // placement
+    staticKind(padGeo, padMat, 90, ({rng, put, count, n}) => { for(let i = 1; i < n * 12 && count() < n; i++){ const a = rng() * 6.2832, r = Math.sqrt(rng()) * pond.R * 1.1, x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r;
+      if(pondD(x, z) > .93 || depthAt(x, z) < span * .018) continue; put(x, pond.wl, z, [1, span * (.03 + .05 * rng()), rng(), rng() * 6.2832], [0, rng(), 0, 0], [.85 + .3 * rng(), 0, 0]); } });
+    staticKind(lotusLeaf, plantMat, 18, ({rng, put, count, n}) => { for(let i = 1; i < n * 14 && count() < n; i++){ const a = rng() * 6.2832, r = Math.sqrt(rng()) * pond.R * .9, x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r, y = height(x, z);
+      if(pondD(x, z) > .85 || pond.wl - y < span * .05) continue; put(x, y, z, [(pond.wl - y) + span * (.1 + .16 * rng()), span * (.07 + .05 * rng()), rng(), rng() * 6.2832], [9, rng(), .45, 0]); } });
+    const PINK = [[.96, .55, .7], [.97, .95, .93], [.93, .45, .62]];
+    staticKind(lotusFlower, plantMat, 8, ({rng, put, count, n}) => { for(let i = 1; i < n * 20 && count() < n; i++){ const a = rng() * 6.2832, r = Math.sqrt(rng()) * pond.R * .8, x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r, y = height(x, z);
+      if(pondD(x, z) > .8 || pond.wl - y < span * .06) continue; put(x, y, z, [(pond.wl - y) + span * (.2 + .14 * rng()), span * (.045 + .02 * rng()), rng(), rng() * 6.2832], [0, rng(), .5, 0], PINK[(rng() * 3) | 0]); } });
+    staticKind(cattail, plantMat, 70, ({rng, put, count, n}) => { for(let i = 1; i < n * 20 && count() < n; i++){ const a = rng() * 6.2832, r = pond.R * (.95 + .5 * rng()), x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r;
+      if(!inPond(x, z, .96, 1.32) || rng() < .3) continue; const y = height(x, z); put(x, y, z, [span * (.17 + .13 * rng()), span * .05, rng(), rng() * 6.2832], [5, rng(), .6, 0]); } });
+    staticKind(reedGeo, grassMat, 500, ({rng, put, count, n}) => { for(let i = 1; i < n * 12 && count() < n; i++){ const a = rng() * 6.2832, r = pond.R * (.85 + .6 * rng()), x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r;
+      if(!inPond(x, z, .9, 1.38)) continue; const y = height(x, z), hh = span * (.12 + .14 * rng()); put(x, y, z, [hh, hh * .05, rng(), rng() * 6.2832], [2, clamp(.2 + rng() * .5, 0, 1), 1.1, .2 + rng() * .4]); } });
+  }
+
+  // ---- rain impact droplets: tiny translucent beads thrown up from each impact (ground and water), ballistic arcs
+  const DR = 3000, dg = new THREE.InstancedBufferGeometry(); dg.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0], 3)); dg.setIndex([0, 1, 2, 1, 3, 2]);
+  { const pos = new Float32Array(DR * 3), sd = new Float32Array(DR * 3), r = mulberry(hashStr(seed + 'drops'));
+    for(let k = 0; k < DR / 5; k++){ let x, z, y; for(let tries = 0; tries < 30; tries++){ const onWater = r() < .45, a = r() * 6.2832;
+        if(onWater){ const rr = Math.sqrt(r()) * pond.R * .9; x = pond.cx + Math.cos(a) * rr; z = pond.cz + Math.sin(a) * rr; if(pondD(x, z) < .9){ y = pond.wl; break; } }
+        else { const d = Math.sqrt(r()) * span * 3.2; x = center.x + Math.cos(a) * d; z = center.z + Math.sin(a) * d; if(pondD(x, z) > 1.1){ y = height(x, z); break; } } }
+      const ph = r(); for(let j = 0; j < 5; j++){ const i = k * 5 + j; pos.set([x, y ?? y0, z], i * 3); sd.set([j / 5 * 6.2832 + r(), .4 + r() * .8, ph], i * 3); } }
+    dg.setAttribute('aPos', new THREE.InstancedBufferAttribute(pos, 3)); dg.setAttribute('aSd', new THREE.InstancedBufferAttribute(sd, 3)); dg.instanceCount = DR; }
+  const drops = new THREE.Mesh(dg, new THREE.ShaderMaterial({uniforms: {uTime: U.uTime, uSpan: U.uSpan, uRain: U.uRain}, transparent: true, depthWrite: false,
+    vertexShader: `attribute vec3 aPos; attribute vec3 aSd; uniform float uTime, uSpan, uRain; varying vec2 vUv; varying float vA;
+      void main(){ float rate = .6 + fract(aPos.x * 13.7 + aPos.z * 3.1) * .5, t = fract(uTime * rate + aSd.z * 7.), tt = t / .45; vUv = position.xy;
+        if(tt > 1.){ gl_Position = vec4(2., 2., 2., 1.); vA = 0.; return; }
+        float r = tt * uSpan * (.022 + .03 * aSd.y), h = tt * (1. - tt) * 4. * uSpan * (.045 + .05 * aSd.y);
+        vec3 w = aPos + vec3(cos(aSd.x) * r, h + uSpan * .012, sin(aSd.x) * r);
+        vec4 mv = viewMatrix * vec4(w, 1.); mv.xy += position.xy * uSpan * .0042 * (1. - tt * .35); vA = uRain * (1. - tt * .6); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `varying vec2 vUv; varying float vA; void main(){ float r = length(vUv); if(r > 1. || vA < .02) discard;
+      vec3 col = r < .45 ? vec3(.82, .93, 1.) : vec3(.4, .66, .95);                                                  // pale highlight bead with a translucent blue rim
+      gl_FragColor = vec4(col, vA * (r < .45 ? .85 : .55)); }`}));
+  drops.frustumCulled = false; drops.visible = false; group.add(drops);
+
   const lerp3 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t), fogCol = new THREE.Color();
 
   const api = {group, wind, sunDir, sunColor: sunCol, skyColor: new THREE.Color(), groundColor: new THREE.Color(.33, .25, .15), ground: height, params: P,
     setParams(p){
-      Object.assign(P, p); const w = P.weather / 100; wind.strength = P.wind / 100 * 1.5 * (1 + w * .9); U.uSeason.value = P.season / 100 * 3; U.uWet.value = smooth(.3, .7, w); U.uRain.value = smooth(.45, .85, w); rain.visible = U.uRain.value > .02; wind.speed = .4 + P.speed / 50; wind.gust = P.gust / 100; wind.setAngle(P.dir); U.uCover.value = P.clouds / 100 * .75 * (1 - w) + w * .95;
+      Object.assign(P, p); const w = P.weather / 100; wind.strength = P.wind / 100 * 1.5 * (1 + w * .9); U.uSeason.value = P.season / 100 * 3; U.uWet.value = smooth(.3, .7, w); U.uRain.value = smooth(.45, .85, w); rain.visible = splash.visible = drops.visible = U.uRain.value > .02; wind.speed = .4 + P.speed / 50; wind.gust = P.gust / 100; wind.setAngle(P.dir); U.uCover.value = P.clouds / 100 * .75 * (1 - w) + w * .95;
       U.uHeight.value = .35 + P.height / 50 * .65; U.uDry.value = P.dry / 100;
       const e = P.sun * Math.PI / 180, az = -.6, k = smooth(3, 40, P.sun);                  // sun elevation tints light, sky, clouds and fog
       sunDir.set(Math.cos(e) * Math.cos(az), Math.sin(e), Math.cos(e) * Math.sin(az)).normalize();
       const grey = (c, g) => c.map(v => v + (.58 + (c[0] + c[1] + c[2]) / 3 * .3 - v) * g), sc = lerp3([1, .6, .34], [1, .96, .88], k).map(v => v * (1 - .55 * w)), hz = grey(lerp3([.95, .66, .5], [.76, .86, .95], k), w * .75), zn = grey(lerp3([.22, .24, .42], [.2, .43, .82], k), w * .8);
       sunCol.setRGB(sc[0], sc[1], sc[2]); U.uSunCol.value.set(...sc); skyU.uHorizon.value.set(...hz); skyU.uZenith.value.set(...zn); skyU.uCloudCol.value.set(...lerp3([1, .86, .78], [.98, .98, 1], k));
       fogCol.setRGB(hz[0], hz[1], hz[2], THREE.SRGBColorSpace); api.skyColor.setRGB(zn[0], zn[1], zn[2], THREE.SRGBColorSpace);
-      scene.fog = new THREE.Fog(fogCol, span * 1.6 * (1 - .6 * w), span * 7 * (1 - .55 * w));
+      scene.fog = new THREE.Fog(fogCol, span * 1.6 * (1 - .6 * w), span * 7 * (1 - .55 * w)); waterU.uFog.value.set(span * 1.6 * (1 - .6 * w), span * 7 * (1 - .55 * w));
       U.uSunWeather = w;
     },
     update(t, camera){
@@ -386,12 +528,14 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
       wind.time = t; U.uTime.value = t; U.uCamPos.value.copy(camera.position); U.uWind.value = wind.strength; U.uGust.value = wind.gust; U.uSpeed.value = wind.speed; skyU.uCam.value.copy(camera.position);
       dome.position.copy(camera.position); dome.scale.setScalar(camera.far * .45);
       const dens = P.density / 100 * (api.perf ?? 1), sn = U.uSeason.value, aut = smooth(1.2, 2, sn) * (1 - smooth(2.6, 3, sn)), win = smooth(2.4, 3, sn), share = {grass: dens * (1 - .25 * win), flowers: P.flowers / 100 * (1 - win) * (1 - .5 * aut), weeds: P.weeds / 100, leaves: P.leaves / 100 * (1 + aut * 2.5), docks: P.weeds / 100, fall: P.fall / 100 * (1 + aut * 2.5) * (1 - win * .8)};
+      for(const a of aquatic){ a.mesh.geometry.instanceCount = Math.floor(a.full * clamp(P.pond / 100, 0, 1)); }
       for(const m of chunks){
         if(m.userData.kind === 'fall'){ m.geometry.instanceCount = Math.floor(m.userData.full * clamp(share.fall, 0, 1)); continue; }
         const d = camera.position.distanceTo(m.userData.c), lod = m.userData.kind === 'grass' ? Math.pow(clamp(1.12 - d / (span * 4.6), .08, 1), 1.4) : clamp(1.2 - d / (span * 2.6), 0, 1);
         m.geometry.instanceCount = Math.floor(m.userData.full * lod * clamp(share[m.userData.kind], 0, 1)); m.visible = m.geometry.instanceCount > 0;
       }
     },
+    pond, pondD, inPond: (x, z) => pondD(x, z) < 1,
     setBodies(list){ list.slice(0, 5).forEach((b, i) => U.uBodies.value[i + 1].set(b.x, b.z, b.r, b.k ?? .7)); for(let i = list.length; i < 5; i++) U.uBodies.value[i + 1].set(0, 0, 1, 0); },
     stats(){ const o = {}; for(const m of chunks){ const k = m.userData.kind; o[k] = o[k] || {buffered: 0, drawn: 0}; o[k].buffered += m.userData.full; o[k].drawn += m.visible ? m.geometry.instanceCount : 0; } return o; },
     dispose(){ scene.fog = null; scene.remove(group); group.traverse(o => { o.geometry?.dispose(); o.material?.dispose?.(); }); },

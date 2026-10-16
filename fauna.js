@@ -47,7 +47,15 @@ export class Fauna {
   }
   r(a, b){ return a + (b - a) * this.rnd(); }
   pick(items){ let t = items.reduce((s, i) => s + i[1], 0) * this.rnd(); for(const [v, w] of items){ if((t -= w) <= 0) return v; } return items[0][0]; }
-  ringPoint(a, b){ const ang = this.rnd() * TAU, r = this.r(a, b); return [Math.sin(ang) * r, Math.cos(ang) * r]; }
+  inWater(x, z){ return this.meadow.pondD(this.center.x + x * this.M, this.center.z + z * this.M) < 1.15; }
+  ringPoint(a, b){ let x = 0, z = 0; for(let k = 0; k < 14; k++){ const ang = this.rnd() * TAU, r = this.r(a, b); x = Math.sin(ang) * r; z = Math.cos(ang) * r; if(!this.inWater(x, z)) break; } return [x, z]; }
+  shore(a){                                                           // a dry spot on the bank nearest the animal, for drinking
+    const m = this.meadow, M = this.M, c = this.center, px = (m.pond.cx - c.x) / M, pz = (m.pond.cz - c.z) / M;
+    let dx = a.position.x - px, dz = a.position.z - pz; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L; let d = m.pond.R / M * .85;
+    for(let k = 0; k < 40; k++){ const x = px + dx * d, z = pz + dz * d; if(m.pondD(c.x + x * M, c.z + z * M) > 1.1) return [x, z]; d *= 1.05; }
+    return [px + dx * d, pz + dz * d];
+  }
+  #drink(rec){ const [x, z] = this.shore(rec.a), M = this.M; this.#walk(rec, x, z, this.#gear(rec.a, 'walk', 'shuffle', 'hop'), () => this.#act(rec, 'drink', {duration: this.r(4, 8)})); }
 
   // ---- perch props: weathered fence posts, a stump and rocks (also give birds somewhere to land)
   #props(){
@@ -72,7 +80,7 @@ export class Fauna {
       while(!this.dead && this.recs.length < ROSTER.filter(([, min]) => this.level >= min).length){
         const idx = this.recs.length, [kind] = ROSTER[idx], seed = 3 + idx * 7 + (hashStr(String(this.rnd())) % 50);
         const [x, z] = this.ringPoint(1.9, 3.3), heading = this.rnd() * TAU;
-        const a = await lib.createAnimal(kind, {seed, quality: 'medium', worker: false, ground: this.ground, perches: this.perches, position: new V(x, this.ground(x, z), z), heading});
+        const a = await lib.createAnimal(kind, {seed, quality: 'medium', worker: false, ground: this.ground, water: (x, z) => this.inWater(x, z) ? (this.meadow.pond.wl - this.center.y) / this.M : null, perches: this.perches, position: new V(x, this.ground(x, z), z), heading});
         if(this.dead){ a.dispose(); return; }
         this.group.add(a.object); this.#mind(kind, a); await new Promise(r => setTimeout(r, 80));   // yield so frames keep rendering between builds
       }
@@ -113,7 +121,8 @@ export class Fauna {
     if(rec.state === 'alert'){ if(dp < tr.alert * tr.bold) flee(); else { a.lookAt(null); rec.state = 'idle'; rec.t = this.r(1, 3); } return; }
     if(rec.state !== 'idle' || rec.t > 0) return;
     const go = () => { const [x, z] = this.ringPoint(Math.max(tr.alert + .3, 2.2), tr.range + 1.2); this.#walk(rec, x, z, this.#gear(a, 'shuffle', 'halfbound')); };
-    switch(this.pick([['wander', 3], ['eat', 3 - tr.lazy * 1], ['groom', 1.5], ['look', 1.2], ['sit', 1.2 + tr.lazy]])){
+    switch(this.pick([['wander', 3], ['eat', 3 - tr.lazy * 1], ['groom', 1.5], ['look', 1.2], ['sit', 1.2 + tr.lazy], ['drink', .9]])){
+      case 'drink': this.#drink(rec); break;
       case 'wander': go(); break;
       case 'eat': this.#act(rec, 'eat', {duration: this.r(3, 9)}); break;
       case 'groom': this.#act(rec, 'groom'); break;
@@ -123,7 +132,8 @@ export class Fauna {
   #cat(rec, dp){
     const {a, tr} = rec; if(rec.state !== 'idle' || rec.t > 0) return;
     const walk = this.#gear(a, 'walk');
-    switch(this.pick([['wander', 2], ['groom', 2], ['loaf', 2 + tr.lazy * 2], ['sleep', tr.lazy * 2], ['blink', 1], ['stalk', dp > 1.8 ? tr.curious * 2.4 : 0], ['sit', 1]])){
+    switch(this.pick([['wander', 2], ['groom', 2], ['loaf', 2 + tr.lazy * 2], ['sleep', tr.lazy * 2], ['blink', 1], ['drink', .7], ['stalk', dp > 1.8 ? tr.curious * 2.4 : 0], ['sit', 1]])){
+      case 'drink': this.#drink(rec); break;
       case 'wander': { const [x, z] = this.ringPoint(1.9, tr.range + 1); this.#walk(rec, x, z, walk); break; }
       case 'stalk': { const f = (dp - 1.5) / dp; this.#walk(rec, a.position.x * (1 - f * .9), a.position.z * (1 - f * .9), walk, () => { a.lookAt(this.person); this.#act(rec, 'sit', {}, () => this.#act(rec, 'slowblink')); }); break; }
       case 'groom': this.#act(rec, 'groom'); break;
@@ -135,7 +145,8 @@ export class Fauna {
   #dog(rec, dp){
     const {a, tr} = rec; if(rec.state !== 'idle' || rec.t > 0) return;
     const trot = this.#gear(a, 'trot', 'walk');
-    switch(this.pick([['come', dp > 2.6 ? 3 : 0], ['wander', 2], ['sniff', 2], ['sit', 1.5], ['lie', tr.lazy * 2], ['greet', dp < 2.8 ? 1.5 : 0], ['dig', .5]])){
+    switch(this.pick([['come', dp > 2.6 ? 3 : 0], ['wander', 2], ['sniff', 2], ['sit', 1.5], ['lie', tr.lazy * 2], ['greet', dp < 2.8 ? 1.5 : 0], ['dig', .5], ['drink', 1.2]])){
+      case 'drink': this.#drink(rec); break;
       case 'come': { const f = (dp - this.r(1.6, 2.2)) / dp; this.#walk(rec, a.position.x * (1 - f), a.position.z * (1 - f), trot, () => { a.lookAt(this.person); this.#act(rec, 'greet', {}, () => this.#act(rec, 'sit')); }); break; }
       case 'wander': { const [x, z] = this.ringPoint(1.5, tr.range + .8); this.#walk(rec, x, z, this.#gear(a, 'walk')); break; }
       case 'sniff': this.#act(rec, 'sniff'); break;
@@ -151,7 +162,8 @@ export class Fauna {
     if(rec.state !== 'idle' || rec.t > 0) return;
     if(rec.flyNext){ rec.flyNext = false; this.#fly(rec); return; }
     if(mode === 'perch'){ this.pick([['look', 3], ['fly', 1.4]]) === 'look' ? (a.lookAt(new V(this.r(-4, 4), this.r(.3, 2), this.r(-4, 4))), rec.t = this.r(2, 6)) : this.#fly(rec); return; }
-    switch(this.pick([['hop', 3], ['eat', 3], ['look', 2], ['fly', .7 + tr.curious]])){
+    switch(this.pick([['hop', 3], ['eat', 3], ['look', 2], ['fly', .7 + tr.curious], ['drink', 1]])){
+      case 'drink': this.#drink(rec); break;
       case 'hop': { const [x, z] = this.ringPoint(1.8, FIELD_R - .3); this.#walk(rec, x, z, this.#gear(a, 'walk', 'hop')); break; }
       case 'eat': this.#act(rec, 'eat', {duration: this.r(3, 7)}); break;
       case 'look': a.lookAt(new V(this.r(-4, 4), this.r(.3, 1.2), this.r(-4, 4))); rec.t = this.r(1.5, 4); break;
