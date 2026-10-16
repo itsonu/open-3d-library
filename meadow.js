@@ -319,8 +319,10 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
   const terrainMat = new THREE.MeshStandardMaterial({vertexColors: true, roughness: 1});
   terrainMat.onBeforeCompile = sh => {                                // ground gets the same moving cloud shadows
     Object.assign(sh.uniforms, U);
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWorldT = (modelMatrix * vec4(transformed, 1.)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT; uniform vec3 uSunW; uniform float uSeason, uWet, uWL;\n' + NOISE_GLSL + CLOUD_GLSL)
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT; varying float vCloudT; uniform vec3 uSunW;\n' + NOISE_GLSL + CLOUD_GLSL).replace('#include <begin_vertex>', `#include <begin_vertex>
+      vWorldT = (modelMatrix * vec4(transformed, 1.)).xyz;
+      vCloudT = cloudDensity(vWorldT.xz + uSunW.xz / max(uSunW.y, .1) * uSpan * ${CLOUD_Y}.);        // cloud shadows are ~28 spans wide: per vertex is exact enough and far cheaper than per pixel`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT; varying float vCloudT; uniform vec3 uSunW; uniform float uSeason, uWet, uWL;\n' + NOISE_GLSL + CLOUD_GLSL)
       .replace('#include <color_fragment>', `#include <color_fragment>
       { // ground detail: moss carpets on the damp green parts, soil crumbs, pebbles, leaf litter specks
         vec2 q = vWorldT.xz / uSpan;
@@ -346,7 +348,7 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
         float stone = step(.955, hash21(floor(q * 210.) + 3.)) * stoneBand * smoothstep(.45, .22, length(fract(q * 210.) - .5)); diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.09, .085, .075) * (.7 + .6 * hash21(floor(q * 210.))), stone);   // small stones
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.2 + .02, step(.99, hash21(floor(q * 330.) + 9.)) * smoothstep(.45, .2, length(fract(q * 330.) - .5)) * damp * .5);   // wet shine specks
       }
-      diffuseColor.rgb *= 1. - .5 * cloudDensity(vWorldT.xz + uSunW.xz / max(uSunW.y, .1) * uSpan * ${CLOUD_Y}.);`);
+      diffuseColor.rgb *= 1. - .5 * vCloudT;`);
   };
   const terrain = new THREE.Mesh(tg, terrainMat); terrain.receiveShadow = true; terrain.matrixAutoUpdate = false; group.add(terrain);
 

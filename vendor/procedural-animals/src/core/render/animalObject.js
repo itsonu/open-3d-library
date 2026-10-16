@@ -180,7 +180,7 @@ export function createAnimalObject(data, species = {}, opts = {}) {
    *  once; transitions into or out of the crowd tier are immediate. */
   obj.setQuality = (q, opts = {}) => {
     if (!QUALITY[q]) return obj;
-    obj.tier = q; obj.quality = QUALITY[q];
+    obj.tier = q; obj.quality = Number.isFinite(opts.shells) ? { ...QUALITY[q], shells: opts.shells } : QUALITY[q];   // opts.shells: an exact layer count (distance LOD) instead of the tier's
     ease = Math.max(0, +opts.transition || 0);
     lastWall = wall();
     syncVis(); return obj;

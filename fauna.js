@@ -215,6 +215,25 @@ export class Fauna {
     ((useP || (cross && bankPerches.length)) ? a.play('perch', {target: dest.clone()}) : a.play('land', {target: dest})).then(done);
   }
 
+  // ---- distance LOD: the coat's cost is geometry (~30k verts x one instance per fur shell), not pixels, so the shell count follows the
+  // animal's share of the screen height (offscreen: none). Near animals keep the full coat; hysteresis stops tier flicker.
+  static SHELLS = [16, 10, 7, 5, 3, 0]; static FRAC = [.6, .3, .12, .05, .022]; static SIZE = {rabbit: .4, crow: .5, cat: .5, dog: .8};   // shells per tier, screen-height fractions between tiers, body height (m)
+  #lod(camera){
+    camera.updateMatrixWorld();
+    const fr = this.frustum ??= new THREE.Frustum(), s = this.sph ??= new THREE.Sphere(), p = this.lp ??= new V(), N = Fauna.FRAC.length;
+    fr.setFromProjectionMatrix((this.pm ??= new THREE.Matrix4()).multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    for(const rec of this.recs){
+      const mode = rec.a.state.mode, body = Fauna.SIZE[rec.kind] ?? .5, h = body * (mode === 'air' || mode === 'takeoff' || mode === 'landing' ? 1.8 : 1) * this.M;
+      p.copy(rec.a.position); p.y += body * .5; this.group.localToWorld(p); s.set(p, h * 1.2);
+      const f = h / (2 * Math.max(camera.position.distanceTo(p), 1e-3) * tanH);
+      let t = fr.intersectsSphere(s) ? Fauna.FRAC.findIndex(x => f >= x) : N; if(t < 0) t = N;
+      const cur = rec.tier ?? t;
+      if(t > cur && f >= Fauna.FRAC[cur] * .87 && t < N) t = cur;       // smaller: drop a tier only once clearly below its edge
+      else if(t < cur && f <= Fauna.FRAC[t] * 1.15) t = cur;            // bigger: gain a tier only once clearly above its edge
+      if(t !== rec.tier){ rec.tier = t; rec.a.render.setQuality?.('medium', {shells: Fauna.SHELLS[t], transition: t === N || cur === N ? 0 : .5}); rec.a.setLod(t >= 4 ? 2 : 0); }
+    }
+  }
   update(dt, camera){
     if(this.dead) return; dt = Math.min(dt, .1);
     const bodies = [];
@@ -223,7 +242,7 @@ export class Fauna {
       const g = rec.a.state.mode === 'air' || rec.a.state.mode === 'takeoff' || rec.a.state.mode === 'landing';
       if(!g) bodies.push({x: this.center.x + rec.a.position.x * this.M, z: this.center.z + rec.a.position.z * this.M, r: (rec.kind === 'dog' ? .32 : rec.kind === 'cat' ? .24 : rec.kind === 'rabbit' ? .17 : .12) * this.M, k: .7});
     }
-    this.meadow.setBodies(bodies);
+    this.meadow.setBodies(bodies); if(camera) this.#lod(camera);
   }
   dispose(){ this.dead = true; for(const r of this.recs) r.a.dispose(); this.recs = []; this.group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); }); this.scene.remove(this.group); this.meadow.setBodies([]); }
 }
