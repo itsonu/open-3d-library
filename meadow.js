@@ -165,6 +165,7 @@ const PLANT_VS = /* glsl */`                                            // flowe
     if(plume && aMisc.w < .35) o = vec3(0.);                                                                          // not every reed carries a seed head
     if(pet){ o.xz *= mix(.3, 1., open); o.y *= mix(1.6, 1., open); o.xz *= .92 + .16 * fract(ph * 13.1); }             // buds / half-open flowers, per-flower size jitter
     if(cat > .5 && part > 1.5 && part < 2.5){ o.y *= aColor.r; o.xz *= aMisc.w; }
+    if(cat < .5 && part > 1.5 && part < 2.5) o *= smoothstep(.15, .6, open);                                          // a closed bud hides its centre inside the petals
     if(slot){ bool bud = aMisc.w < .5; float nL = bud ? 1. + floor(fk * 2.99) : 1. + floor(fk * 4.99);                    // buds keep 1-3 small upright leaves, open flowers 1-5 (most 2-5)
       if(si >= nL) o = vec3(0.);
       else { float fs = (.5 + .45 * fract(ph * 3.9)) * (.55 + .6 * fract(ph * 5.7 + si * .31)) * (bud ? .8 : 1.) * (aMisc.x > 3.5 ? .75 : aMisc.x > 2.5 ? 1.15 : aMisc.x > 1.5 ? .85 : 1.);   // plant, leaf and species size
