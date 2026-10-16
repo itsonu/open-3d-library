@@ -99,6 +99,7 @@ h3:first-child{margin-top:0}
   <button id="bClay" title="Plain clay material (C)">Clay</button>
   <button id="bGrid" class="on" title="Grid (G)">Grid</button>
   <button id="bBox" title="Bounding box (B)">Box</button>
+  <button id="bSkel" hidden title="Show skeleton (K)">Bones</button>
   <select id="bg"><option value="#14161a">Dark</option><option value="#4a4f5a">Grey</option><option value="#e9ebef">Light</option></select>
   <button id="bShot" title="Save PNG">Shot</button>
   <button id="bInsp" class="on" title="Inspector (I)">Inspect</button>
@@ -240,7 +241,7 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x555566, 1.6));
 const key = new THREE.DirectionalLight(0xffffff, 2.2); scene.add(key, key.target);
 const clay = new THREE.MeshStandardMaterial({color:0xb8bcc6, roughness:.85});
 const sel = {box:null, mesh:null};
-let model = null, grid = null, bbox = null, home = null, meshes = [], cur = null, token = 0, view = 'lib';
+let model = null, grid = null, bbox = null, skel = null, home = null, meshes = [], cur = null, token = 0, view = 'lib';
 const flags = {wire:false, clay:false};
 
 function resize(){
@@ -266,7 +267,7 @@ function clearSel(){ if(sel.box){ scene.remove(sel.box); sel.box = null; } sel.m
 function disposeModel(){
   stopPlayback();
   if(!model) return;
-  disposeObj(model); scene.remove(model, grid, bbox); model = grid = bbox = null; meshes = []; clearSel();
+  disposeObj(model); scene.remove(model, grid, bbox); if(skel){ scene.remove(skel); skel.dispose?.(); } model = grid = bbox = skel = null; meshes = []; clearSel();
 }
 
 // ---------- transport: animation clips + audio, one timeline ----------
@@ -295,7 +296,7 @@ function setupTransport(it, obj){
   $('#volw').hidden = !af; recompute();
 }
 function selectClip(i){
-  T.actions.forEach(a => a.stop()); T.action = T.actions[i]; T.action.play(); recompute();
+  T.actions.forEach(a => a.stop()); T.action = T.actions[i]; T.action.play(); $('#tClip').value = i; recompute();
 }
 function recompute(){
   T.dur = Math.max(T.action?.getClip().duration || 0, isFinite(T.audio?.duration) ? T.audio.duration : 0);
@@ -362,6 +363,9 @@ function mount(obj){
   grid.material.transparent = true; grid.material.opacity = .5;
   bbox = new THREE.Box3Helper(box, 0x6ea8ff); bbox.visible = $('#bBox').classList.contains('on');
   scene.add(grid, bbox);
+  const nBones = meshes.reduce((n, m) => n + (m.isSkinnedMesh ? m.skeleton.bones.length : 0), 0);
+  if(nBones){ skel = new THREE.SkeletonHelper(model); skel.material.depthTest = false; skel.visible = $('#bSkel').classList.contains('on'); scene.add(skel); }
+  $('#bSkel').hidden = !nBones;
   frame(box); home = {pos:camera.position.clone(), tgt:controls.target.clone(), near:camera.near, far:camera.far};
   $('#load').hidden = true; setupTransport(cur, obj); inspector(size);
 }
@@ -386,7 +390,7 @@ function open(id){
   const is3d = models.length > 0, isGal = !is3d && it.type==='reference' && imgs.length;
   $('#center').firstElementChild.style.display = isGal ? 'none' : ''; g.style.display = isGal ? 'grid' : 'none';
   ['bReset','bIn','bOut','bRot','bWire','bClay','bGrid','bBox','bg','bShot'].forEach(b => $('#'+b).disabled = !is3d);
-  $('#load').hidden = true; $('#msg').textContent = '';
+  $('#load').hidden = true; $('#msg').textContent = ''; $('#bSkel').hidden = true;
   if(isGal){
     g.innerHTML = imgs.map((f,i) => `<figure data-i="${i}"><img loading="lazy" src="${f.t || url(it,f.n)}" onerror="this.onerror=null;this.src='${url(it,f.n)}'"><figcaption>${f.n}</figcaption></figure>`).join('');
     g.onclick = e => { const f = e.target.closest('figure'); if(f) lightbox(imgs.map(x => url(it,x.n)), +f.dataset.i); };
@@ -421,6 +425,9 @@ function inspector(size){
       const g = m.geometry; verts += g.attributes.position.count; tris += (g.index ? g.index.count : g.attributes.position.count)/3;
       for(const mat of [].concat(m.userData.m0)){ mats.add(mat); Object.entries(mat).forEach(([k,v]) => v?.isTexture && tex.add(k+': '+(v.name || (v.image?.src||'').split('/').pop() || 'embedded'))); }
     }
+    const nBones = meshes.reduce((n, m) => n + (m.isSkinnedMesh ? m.skeleton.bones.length : 0), 0), clips = model.animations || [];
+    const usedKeys = new Set([...tex].map(t => t.split(': ').slice(1).join(': ').toLowerCase().replace(/\.[^.]+$/,'').replace(/[^a-z0-9]/g,'')));
+    const unused = cur.files.filter(f => IMG.includes(ext(f.n)) && !/^gltf_embedded/.test(f.n) && !usedKeys.has(f.n.toLowerCase().replace(/\.[^.]+$/,'').replace(/[^a-z0-9]/g,''))).map(f => f.n);
     const sz = size ? [size.x,size.y,size.z].map(v => +v.toPrecision(3)).join(' × ') : '';
     h += `<h3>Model</h3>
       <div class="row"><span class="k">Meshes</span><span>${meshes.length}</span></div>
@@ -428,12 +435,16 @@ function inspector(size){
       <div class="row"><span class="k">Vertices</span><span>${verts.toLocaleString()}</span></div>
       <div class="row"><span class="k">Materials</span><span>${mats.size}</span></div>
       <div class="row"><span class="k">Textures</span><span>${tex.size}</span></div>
+      <div class="row"><span class="k">Rig</span><span>${nBones ? nBones + ' bones' : 'none'}</span></div>
       <div class="row"><span class="k">Animations</span><span>${model.animations?.length || 0}</span></div>
       <div class="row"><span class="k">Size</span><span>${sz}</span></div>
+      ${clips.length ? `<h3>Animations <small>(click to play)</small></h3>${clips.map((c,i) => `<div class="mesh" data-clip="${i}"><span>▶ ${c.name || 'clip '+(i+1)}</span><small style="color:var(--dim)">${fmt(c.duration)}</small></div>`).join('')}`
+        : nBones ? '<div style="color:var(--dim);margin-top:8px">Rigged (use Bones to see the skeleton) but has no animation clips.</div>' : ''}
       <h3>Meshes <small>(click = select · tick = show)</small></h3><div id="meshes">${meshes.map((m,i) =>
         `<div class="mesh" data-i="${i}"><input type="checkbox" checked data-v="${i}"><span title="${m.name}">${m.name||'mesh '+i}</span></div>`).join('')}</div>
       <h3>Selected</h3><div id="selinfo" style="color:var(--dim)">nothing</div>
-      <h3>Textures</h3><div style="color:var(--dim);word-break:break-all">${[...tex].join('<br>') || 'none'}</div>`;
+      <h3>Textures applied</h3><div style="color:var(--dim);word-break:break-all">${[...tex].join('<br>') || 'none'}</div>
+      ${unused.length ? `<h3>Image files not used by the model</h3><div style="color:var(--dim);word-break:break-all">${unused.join('<br>')}</div>` : ''}`;
   }
   h += `<h3>Files</h3><div class="files">${cur.files.map(f => `<div><a href="${url(cur,f.n)}" download title="${f.n}">${f.n}</a><small>${mb(f.s)}</small></div>`).join('')}</div>`;
   $('#inspBody').innerHTML = h;
@@ -441,6 +452,7 @@ function inspector(size){
 $('#inspBody').addEventListener('click', e => {
   const v = e.target.dataset?.v;
   if(v !== undefined){ meshes[v].visible = e.target.checked; return; }
+  const clip = e.target.closest('[data-clip]'); if(clip){ selectClip(+clip.dataset.clip); setTime(0); play(true); return; }
   const row = e.target.closest('.mesh'); if(row) select(meshes[+row.dataset.i]);
 });
 function select(m){
@@ -469,6 +481,7 @@ toggle('bWire', on => { flags.wire = on; applyMode(); });
 toggle('bClay', on => { flags.clay = on; applyMode(); });
 toggle('bGrid', on => grid && (grid.visible = on));
 toggle('bBox', on => bbox && (bbox.visible = on));
+toggle('bSkel', on => skel && (skel.visible = on));
 toggle('bInsp', on => { $('#viewer').classList.toggle('noinsp', !on); resize(); });
 $('#bg').onchange = e => scene.background = new THREE.Color(e.target.value);
 $('#bShot').onclick = () => { renderer.render(scene, camera); renderer.domElement.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = (cur?.id||'shot')+'.png'; a.click(); }); };
@@ -585,7 +598,7 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if(e.key==='Escape') location.hash = '';
   else if(k==='r') $('#bReset').click(); else if(k==='w') $('#bWire').click(); else if(k==='c') $('#bClay').click();
-  else if(k==='g') $('#bGrid').click(); else if(k==='b') $('#bBox').click(); else if(k==='i') $('#bInsp').click();
+  else if(k==='k') $('#bSkel').click(); else if(k==='g') $('#bGrid').click(); else if(k==='b') $('#bBox').click(); else if(k==='i') $('#bInsp').click();
   else if(k==='[') step(-1); else if(k===']') step(1);
   else if(k===' '){ e.preventDefault(); if(T.dur||T.audio) play(!T.playing); else $('#bRot').click(); }
   else if(e.key==='ArrowRight' && T.dur) setTime(T.t+5); else if(e.key==='ArrowLeft' && T.dur) setTime(T.t-5);
