@@ -46,9 +46,9 @@ float cloudDensity(vec2 xz){
 const CLOUD_Y = 40;                                                // cloud plane height, in model spans
 
 const VEG_HEAD = /* glsl */`
-uniform float uHeight, uDry, uWind, uGust; uniform vec4 uBodies[6]; uniform vec3 uSunW;   // bodies[0] = the model; 1.. = animals
+uniform float uHeight, uDry, uWind, uGust, uSeason, uWet; uniform vec4 uBodies[6]; uniform vec3 uSunW;   // bodies[0] = the model; 1.. = animals
 attribute vec3 aOff; attribute vec4 aParam; attribute vec4 aMisc; attribute vec3 aColor; attribute float aPart; attribute float aAttach;
-varying vec3 vCol3, vWorld, vBlade; varying vec2 vLeafUv; varying float vLeaf, vTipT;
+varying vec3 vCol3, vWorld, vBlade; varying vec2 vLeafUv; varying float vLeaf, vTipT, vPh;
 ${NOISE_GLSL}
 uniform float uTime, uSpan, uSpeed; uniform vec2 uWindDir;
 float gAmp(vec2 wp, float ph){                                    // wind amplitude at a place: calm/blow patches x sway + gust packets
@@ -74,7 +74,14 @@ vec2 rot2(vec2 v, float a){ float c = cos(a), s = sin(a); return vec2(c * v.x - 
 const VEG_FRAG_NORMAL = `vec3 normal = normalize(vNormal); vec3 nonPerturbedNormal = normal;`;   // no back-face flip: normals are authored "up-ish"
 const VEG_FRAG_COLOR = /* glsl */`
   vec3 baseCol = vCol3;
-  if(vLeaf > .5){ vec2 q = vLeafUv * 2. - 1.; vec2 e = q * vec2(1., .55); if(dot(e, e) > 1.) discard; baseCol *= 1. - .22 * smoothstep(.07, 0., abs(q.y)); }
+  if(vLeaf > .5 && vLeaf < 1.5){ vec2 q = vLeafUv * 2. - 1.; vec2 e = q * vec2(1., .55); if(dot(e, e) > 1.) discard; baseCol *= 1. - .22 * smoothstep(.07, 0., abs(q.y)); }
+  if(vLeaf > 1.5){                                                        // lily pad: occasional bites/holes, radial veins
+    float a = atan(vLeafUv.y, vLeafUv.x), rr = length(vLeafUv);
+    float bite = hash21(vec2(floor((a + 3.1416) * 1.3), floor(vPh * 61.)));
+    if(bite > .92 && rr > .5 + .3 * hash21(vec2(vPh * 7., 3.))) discard;
+    if(hash21(floor(vLeafUv * 9. + vPh * 40.)) > .985 && rr > .2) discard;
+    baseCol *= 1. - .14 * smoothstep(.0, .05, abs(sin(a * 8.))) * smoothstep(.15, .5, rr);
+  }
   if(vBlade.z > .5){                                                  // blade texture: midrib, fine parallel veins, dark edges, bleached base, patchy tone
     float ax = vBlade.x, bt = vBlade.y;
     baseCol *= 1. - .10 * (.5 + .5 * cos(ax * 18.));
@@ -83,6 +90,7 @@ const VEG_FRAG_COLOR = /* glsl */`
     baseCol = mix(baseCol, vec3(.66, .7, .38), (1. - smoothstep(0., .22, bt)) * .5);
     baseCol *= .88 + .24 * vnoise(vWorld.xz * .35 + bt * 2.);
   }
+  if(vBlade.z < .5) baseCol *= 1. - .2 * uWet;                                 // rain soaks every plant, same shared state as the ground
   vec3 lin = pow(max(baseCol, 0.), vec3(2.2));
   float cs = cloudDensity(vWorld.xz + uSunW.xz / max(uSunW.y, .1) * uSpan * ${CLOUD_Y}.);   // cloud shadow
   lin *= (1. - .5 * cs) * 1.35;
@@ -101,9 +109,9 @@ function vegMaterial(U, vertexBody, key){
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VEG_HEAD)
       // the normal chunks run before begin_vertex, so the whole custom placement goes first and replaces both
-      .replace('#include <beginnormal_vertex>', 'vec3 transformed = vec3(0.);\nvec3 vegNormal = vec3(0., 1., 0.); vBlade = vec3(0.);\n' + vertexBody + '\nvec3 objectNormal = vegNormal;')
+      .replace('#include <beginnormal_vertex>', 'vec3 transformed = vec3(0.);\nvec3 vegNormal = vec3(0., 1., 0.); vBlade = vec3(0.); vPh = 0.;\n' + vertexBody + '\nvec3 objectNormal = vegNormal;')
       .replace('#include <begin_vertex>', '');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uSunCol; varying vec3 vCol3, vWorld, vBlade; varying vec2 vLeafUv; varying float vLeaf, vTipT;\n' + NOISE_GLSL + CLOUD_GLSL + 'uniform vec3 uSunW;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uSunCol; uniform float uWet; varying vec3 vCol3, vWorld, vBlade; varying vec2 vLeafUv; varying float vLeaf, vTipT, vPh;\n' + NOISE_GLSL + CLOUD_GLSL + 'uniform vec3 uSunW;')
       .replace('#include <normal_fragment_begin>', VEG_FRAG_NORMAL).replace('#include <color_fragment>', '#include <color_fragment>\n' + VEG_FRAG_COLOR)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + VEG_FRAG_EMISSIVE);
     m.userData.shader = sh;
@@ -127,23 +135,29 @@ const GRASS_VS = /* glsl */`
   vCol3 = col * (.7 + .5 * t) * mix(.3, 1., smoothstep(0., .65, t));
   vegNormal = normalize(vec3(sin(yaw), 0., cos(yaw)) * (.55 * sign(position.x)) + vec3(0., 1., 0.));       // the two halves of the fold catch light differently
 `;
-const PLANT_VS = /* glsl */`                                            // flowers + docks: a bending stem with organs (petals / leaves) attached
+const PLANT_VS = /* glsl */`                                            // flowers, lotus, docks, cattails: a bending stem with organs (petals / leaves / heads) attached
   float h = aParam.x * uHeight, ph = aParam.z, yaw = aParam.w, size = aParam.y;
   float part = aPart; vLeaf = 0.; vLeafUv = vec2(0.); vTipT = 0.;
+  float cat = aMisc.x > 4.5 && aMisc.x < 5.5 ? 1. : 0.;                   // species 5 = cattail
+  vec2 leanDir = vec2(cos(yaw * 1.7 + 2.), sin(yaw * 1.7 + 2.)); float leanAmt = h * (.03 + .13 * fract(ph * 9.17));
   vec3 p;
-  if(part < .5){ float t = position.y; p = stem(t, h, ph, aMisc.z, aMisc.x); p.xz += rot2(vec2(position.x * h * .018, 0.), -yaw);
-    vCol3 = mix(vec3(.17, .33, .08), vec3(.27, .45, .12), aMisc.y) * (.8 + .3 * t); vegNormal = vec3(0., 1., 0.); }
-  else { vec3 a = stem(aAttach, h, ph, aMisc.z, aMisc.x), o = position * size; o.xz = rot2(o.xz, -yaw);
-    // tilt organs with the stem's lean at the attachment point
-    o.xz += (a.xz) * 0.; p = a + o; vegNormal = normalize(vec3(0., 1., 0.) + vec3(o.x, 0., o.z) * .2 / max(size, 1e-4));
+  if(part < .5){ float t = position.y; p = stem(t, h, ph, aMisc.z, aMisc.x); p.xz += leanDir * leanAmt * t * t;
+    float sw = h * .018 * (cat > .5 ? aColor.g : 1.); p.xz += rot2(vec2(position.x * sw, 0.), -yaw);
+    vCol3 = mix(vec3(.17, .33, .08), vec3(.27, .45, .12), aMisc.y) * (.8 + .3 * t) * mix(.5, 1., smoothstep(0., .4, t)); vegNormal = vec3(0., 1., 0.); }
+  else { vec3 a = stem(aAttach, h, ph, aMisc.z, aMisc.x); a.xz += leanDir * leanAmt * aAttach * aAttach;
+    vec3 o = position * size; float open = aMisc.w > 0. && cat < .5 ? aMisc.w : 1.;
+    if(part < 1.5){ o.xz *= mix(.3, 1., open); o.y *= mix(1.6, 1., open); }                                              // buds / half-open flowers
+    if(cat > .5 && part > 1.5 && part < 2.5){ o.y *= aColor.r; o.xz *= aMisc.w; }                                        // cattail head: own length and thickness
+    o.xz = rot2(o.xz, -yaw); p = a + o; vegNormal = normalize(vec3(0., 1., 0.) + vec3(o.x, 0., o.z) * .2 / max(size, 1e-4));
     if(part < 1.5) vCol3 = aColor * (.82 + .3 * (1. - length(position.xz)));
-    else if(part < 2.5) vCol3 = aMisc.x > 4.5 ? vec3(.3, .16, .07) : aMisc.x > 2.5 && aMisc.x < 3.5 ? vec3(.1, .07, .05) : vec3(.93, .72, .12);      // cattail brown / poppy dark / stamen yellow
-    else { vCol3 = mix(vec3(.14, .3, .07), vec3(.26, .45, .12), aMisc.y) * (.7 + .5 * position.y / max(size, 1e-4) * size + .0); vLeaf = 0.; vTipT = .3; } }
+    else if(part < 2.5) vCol3 = cat > .5 ? vec3(.3, .16, .07) * (.8 + .4 * aMisc.y) : aMisc.x > 2.5 && aMisc.x < 3.5 ? vec3(.1, .07, .05) : vec3(.93, .72, .12);
+    else { vCol3 = mix(vec3(.14, .3, .07), vec3(.26, .45, .12), aMisc.y) * (.7 + .5 * position.y); vTipT = .3; } }
   transformed = aOff + p; vWorld = transformed;
 `;
 const ROSETTE_VS = /* glsl */`                                          // low leaf rosettes (dandelion / plantain)
   float size = aParam.y * uHeight * .8 + aParam.y * .2, yaw = aParam.w, ph = aParam.z;
-  vec3 o = position * size; o.xz = rot2(o.xz, -yaw);
+  vec3 o = position * size; float la = atan(position.z, position.x), lv = .6 + .6 * hash21(vec2(floor((la + 3.1416) * 1.27), ph * 37.));      // every leaf its own length
+  o.xz *= lv * (.8 + .4 * hash21(vec2(ph * 11., 5.))); o.xz = rot2(o.xz, -yaw);
   float amp = gAmp(aOff.xz, ph); vec2 d = uWindDir * amp * .12 * (position.y + length(position.xz) * .4) * size; o.xz += d;
   for(int i = 0; i < 6; i++){ vec4 b = uBodies[i]; if(b.w <= 0.) continue; vec2 bd = aOff.xz - b.xy; float br = length(bd), pu = (1. - smoothstep(0., b.z, br)) * b.w; o.xz += (br > .001 ? bd / br : vec2(0.)) * pu * size * .5; }
   transformed = aOff + o; vWorld = transformed; vLeaf = 0.; vLeafUv = vec2(0.); vTipT = .25;
@@ -159,12 +173,15 @@ const LEAF_VS = /* glsl */`                                             // falle
   transformed = aOff + o; vWorld = transformed; vLeaf = 1.; vLeafUv = position.xz * .5 / max(.5, 1.) + .5; vTipT = .2; vCol3 = aColor;
   vegNormal = normalize(vec3(0., 1., 0.) + vec3(sin(spin), 0., cos(spin)) * .12);
 `;
-const PAD_VS = /* glsl */`                                              // lily pads: float on the water, bob gently
-  float size = aParam.y, yaw = aParam.w, ph = aParam.z, rr = length(position.xz);
-  vec3 o = vec3(position.x, 0., position.z) * size; o.xz = rot2(o.xz, -yaw);
-  o.y += (rr * rr * .07 + .012) * size + sin(uTime * 1.2 + ph * 6.2831) * uSpan * .0012 + sin(uTime * 2.3 + ph * 13.) * uSpan * .0008 * rr;
-  transformed = aOff + o; vWorld = transformed; vLeaf = 0.; vLeafUv = vec2(0.); vTipT = .25;
-  vCol3 = mix(vec3(.08, .24, .06), vec3(.2, .42, .1), rr) * aColor.r * (.92 + .1 * sin(atan(position.z, position.x) * 14.));
+const PAD_VS = /* glsl */`                                              // lily pads: irregular outline, float with the water, bob with the shared wind
+  float size = aParam.y, yaw = aParam.w, ph = aParam.z, rr = length(position.xz), ang = atan(position.z, position.x);
+  float shape = 1. + .08 * sin(ang * 3. + ph * 6.28) + .05 * sin(ang * 5. + ph * 17.) + .03 * sin(ang * 9. + ph * 31.);      // no two outlines alike
+  vec3 o = vec3(position.x, 0., position.z) * size * shape; o.xz = rot2(o.xz, -yaw);
+  float calm = .35 + .65 * min(1., uWind);
+  o.y += (rr * rr * .07 + .012) * size * (.7 + .6 * fract(ph * 5.3)) + sin(uTime * (.9 + ph * .8) + ph * 6.2831) * uSpan * .0011 * calm + sin(uTime * (1.9 + ph) + ph * 13.) * uSpan * .0007 * rr * calm + (fract(ph * 7.7) - .5) * uSpan * .002;
+  transformed = aOff + o; vWorld = transformed; vLeaf = 2.; vLeafUv = position.xz; vPh = ph; vTipT = .25;
+  float old = aMisc.y;                                                     // older pads yellow / brown a little
+  vCol3 = mix(vec3(.08, .24, .06), vec3(.2, .42, .1), rr) * aColor.r * mix(vec3(1.), vec3(1.5, 1.25, .6), old * old) * (.92 + .1 * sin(ang * 14.));
   vegNormal = vec3(0., 1., 0.);
 `;
 const FALL_VS = /* glsl */`                                             // leaves in the air: fall, drift with the wind, tumble; wrap around the model
@@ -203,7 +220,8 @@ function geo(parts){                                               // parts: [{p
   for(const g of parts){ for(let i = 0; i < g.pos.length; i += 3){ pos.push(g.pos[i], g.pos[i + 1], g.pos[i + 2]); part.push(g.part); att.push(g.attach ? g.attach[i / 3] : g.pos[i + 1]); }
     for(const i of g.idx) idx.push(base + i); base += g.pos.length / 3; }
   const b = new THREE.BufferGeometry(); b.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); b.setAttribute('aPart', new THREE.Float32BufferAttribute(part, 1));
-  b.setAttribute('aAttach', new THREE.Float32BufferAttribute(att, 1)); b.setIndex(idx); return b;
+  b.setAttribute('aAttach', new THREE.Float32BufferAttribute(att, 1)); b.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((_, i) => i % 3 === 1 ? 1 : 0), 3));   // (newer three switches to flat shading when there is no normal attribute)
+  b.setIndex(idx); return b;
 }
 function ribbon(segs, taper, power = 1.6){                          // vertical tapered ribbon, unit height, unit width
   const pos = [], idx = [];
@@ -234,6 +252,7 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
     return y0 + (noise.fbm(x / span * .9, z / span * .9) - .5) * 2 * amp() * flat + (noise.fbm(x / span * .25 + 9, z / span * .25) - .4) * span * .5 * smooth(span * 4, span * 9, r); };
   const height = (x, z) => { const h = land(x, z), d = pondD(x, z); if(d > 1.5) return h; return h - pond.depth * Math.pow(1 - smooth(.15, 1.5, d), 1.6); };       // bowl-shaped basin
   const wet = (x, z) => clamp(moist.fbm(x / span * .7 + 3, z / span * .7 - 5) * 1.5 - .15, 0, 1);
+  const waterDepth = (x, z) => pond.wl - height(x, z);                       // + below the surface, - above it (world units): the single source of truth for the shoreline
   const bare = (x, z) => 1 - smooth(.2, .5, clear.fbm(x / span * 1.4 + 11, z / span * 1.4 - 3));           // 1 = bare soil patch (clearing)
   const T = span * 12, SEG = 300, tg = new THREE.PlaneGeometry(T * 2, T * 2, SEG, SEG); tg.rotateX(-Math.PI / 2);
   const tp = tg.attributes.position, col = new Float32Array(tp.count * 3), c = new THREE.Color();
@@ -241,21 +260,20 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
   for(let i = 0; i < tp.count; i++){
     const x = tp.getX(i) + center.x, z = tp.getZ(i) + center.z, y = height(x, z); tp.setXYZ(i, x, y, z);
     const m = wet(x, z), dr = clamp(P.dry / 100 + (.5 - m) * .5, 0, 1), g = lush.map((v, k) => v + (dry[k] - v) * dr), s = smooth(.1, .45, m) * (1 - .75 * bare(x, z));
-    const mud = smooth(1.5, .95, pondD(x, z)), mc = [.2, .16, .1];             // wet mud banks around the water
-    c.setRGB((soil[0] + (g[0] - soil[0]) * s) * (1 - mud) + mc[0] * mud, (soil[1] + (g[1] - soil[1]) * s) * (1 - mud) + mc[1] * mud, (soil[2] + (g[2] - soil[2]) * s) * (1 - mud) + mc[2] * mud, THREE.SRGBColorSpace); col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
+    c.setRGB(soil[0] + (g[0] - soil[0]) * s, soil[1] + (g[1] - soil[1]) * s, soil[2] + (g[2] - soil[2]) * s, THREE.SRGBColorSpace); col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
   }
   tg.setAttribute('color', new THREE.BufferAttribute(col, 3)); tg.computeVertexNormals();
 
   const sunDir = new THREE.Vector3(), sunCol = new THREE.Color();
   const U = {
     uTime: {value: 0}, uWind: {value: 0}, uGust: {value: 0}, uSpeed: {value: 1}, uHeight: {value: 1}, uDry: {value: .25}, uWindDir: {value: wind.dir}, uSpan: {value: span},
-    uSeason: {value: 1}, uWet: {value: 0}, uRain: {value: 0}, uCamPos: {value: new THREE.Vector3()}, uBodies: {value: Array.from({length: 6}, (_, i) => i ? new THREE.Vector4(0, 0, 1, 0) : new THREE.Vector4(center.x, center.z, span * .2, 1))}, uSunW: {value: sunDir}, uSunCol: {value: new THREE.Vector3()}, uCover: {value: .45},
+    uSeason: {value: 1}, uWet: {value: 0}, uWL: {value: pond.wl}, uRain: {value: 0}, uCamPos: {value: new THREE.Vector3()}, uBodies: {value: Array.from({length: 6}, (_, i) => i ? new THREE.Vector4(0, 0, 1, 0) : new THREE.Vector4(center.x, center.z, span * .2, 1))}, uSunW: {value: sunDir}, uSunCol: {value: new THREE.Vector3()}, uCover: {value: .45},
   };
   const terrainMat = new THREE.MeshStandardMaterial({vertexColors: true, roughness: 1});
   terrainMat.onBeforeCompile = sh => {                                // ground gets the same moving cloud shadows
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWorldT = (modelMatrix * vec4(transformed, 1.)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT; uniform vec3 uSunW; uniform float uSeason, uWet;\n' + NOISE_GLSL + CLOUD_GLSL)
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT; uniform vec3 uSunW; uniform float uSeason, uWet, uWL;\n' + NOISE_GLSL + CLOUD_GLSL)
       .replace('#include <color_fragment>', `#include <color_fragment>
       { // ground detail: moss carpets on the damp green parts, soil crumbs, pebbles, leaf litter specks
         vec2 q = vWorldT.xz / uSpan;
@@ -265,12 +283,21 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
         vec3 mossCol = pow(mix(vec3(.09, .2, .05), vec3(.26, .43, .11), fine) * (.8 + .4 * crumb), vec3(2.2));
         diffuseColor.rgb *= .72 + .56 * mid;
         diffuseColor.rgb = mix(diffuseColor.rgb, mossCol, moss * .85);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.34, .32, .28), step(.985, peb) * (1. - moss));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.24, .22, .19), step(.992, peb) * (1. - moss));
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.2, .12, .05), step(.97, crumb) * .5 * (1. - moss));
         float win = smoothstep(2.4, 3., uSeason), aut = smoothstep(1.2, 2., uSeason) * (1. - smoothstep(2.6, 3., uSeason));
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.25, .95, .6), aut * .5);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.75, .8, .85), win * (.5 + .4 * fine));                     // frost / thin snow
         diffuseColor.rgb *= 1. - .32 * uWet;                                                                   // wet ground is darker
+        // shoreline zones from the REAL height above the water line: dry bank -> damp soil -> mud -> submerged bed (irregular edges, no hard outline)
+        float dh = (vWorldT.y - uWL) / uSpan + (fbm4(q * 6. + 3.) - .5) * .02 + (fbm4(q * 26.) - .5) * .006;
+        float damp = smoothstep(.07, .02, dh), mudz = smoothstep(.022, -.004, dh), bed = smoothstep(.0, -.012, dh);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(.55, .48, .42), damp * .8);                // wet, darker soil
+        diffuseColor.rgb = mix(diffuseColor.rgb, pow(vec3(.2, .15, .1) * (.8 + .4 * fine), vec3(2.2)), mudz * (1. - .5 * moss));
+        diffuseColor.rgb = mix(diffuseColor.rgb, pow(vec3(.17, .17, .12) * (.75 + .5 * mid), vec3(2.2)), bed);       // silty bed seen through shallow water
+        float stoneBand = smoothstep(-.03, -.005, dh) * smoothstep(.06, .01, dh);
+        float stone = step(.955, hash21(floor(q * 210.) + 3.)) * stoneBand; diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.3, .29, .26) * (.7 + .6 * hash21(floor(q * 210.))), stone);   // small stones
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.2 + .02, step(.99, hash21(floor(q * 330.) + 9.)) * damp * .5);   // wet shine specks
       }
       diffuseColor.rgb *= 1. - .5 * cloudDensity(vWorldT.xz + uSunW.xz / max(uSunW.y, .1) * uSpan * ${CLOUD_Y}.);`);
   };
@@ -305,8 +332,8 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
   
   const FL = [[.97, .96, .92], [.98, .82, .1], [.58, .36, .72], [.82, .1, .08], [.9, .55, .7]];           // daisy, buttercup, vetch, poppy, pink clover
   const AUT = [[.55, .3, .1], [.7, .5, .12], [.45, .25, .08], [.6, .55, .2], [.38, .3, .1]];             // leaf browns / ochres
-  const kinds = {grass: {geo: grassGeo, mat: grassMat, N: 4200, R: K}, flowers: {geo: flowerGeo, mat: plantMat, N: 320, R: KI}, docks: {geo: dockGeo, mat: plantMat, N: 10, R: KI},
-    weeds: {geo: rosGeo, mat: rosMat, N: 60, R: KI}, leaves: {geo: leafQuad, mat: leafMat, N: 110, R: KI}};
+  const kinds = {grass: {geo: grassGeo, mat: grassMat, N: 4200, R: K}, flowers: {geo: flowerGeo, mat: plantMat, N: 220, R: KI}, docks: {geo: dockGeo, mat: plantMat, N: 10, R: KI},
+    weeds: {geo: rosGeo, mat: rosMat, N: 34, R: KI}, leaves: {geo: leafQuad, mat: leafMat, N: 110, R: KI}};
   const chunks = [], H = [.035, .075, .16], WR = [.085, .07, .06], FLEX = [.9, 1, 1.15];     // blade width is a fraction of its height
   const slopeAt = (x, z, y) => Math.hypot(height(x + span * .02, z) - y, height(x, z + span * .02) - y) / (span * .02);
   const make = (kind, ix, iz, x0, z0, build) => {
@@ -315,7 +342,7 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
     const pt = i => [x0 + ((halton(i, 2) + sx) % 1) * cs, z0 + ((halton(i, 3) + sz) % 1) * cs];
     const put = (x, z, y, p, m, cl) => { off.set([x, y, z], n * 3); prm.set(p, n * 4); msc.set(m, n * 4); if(cl) clr.set(cl, n * 3); n++; };
     build({rng, pt, put, count: () => n, N: k.N});
-    const g = new THREE.InstancedBufferGeometry(); g.index = k.geo.index; for(const a of ['position', 'aPart', 'aAttach']) g.setAttribute(a, k.geo.attributes[a]);
+    const g = new THREE.InstancedBufferGeometry(); g.index = k.geo.index; for(const a of ['position', 'normal', 'aPart', 'aAttach']) g.setAttribute(a, k.geo.attributes[a]);
     g.setAttribute('aOff', new THREE.InstancedBufferAttribute(off.subarray(0, n * 3), 3)); g.setAttribute('aParam', new THREE.InstancedBufferAttribute(prm.subarray(0, n * 4), 4));
     g.setAttribute('aMisc', new THREE.InstancedBufferAttribute(msc.subarray(0, n * 4), 4)); g.setAttribute('aColor', new THREE.InstancedBufferAttribute(clr.subarray(0, n * 3), 3));
     g.instanceCount = n; g.boundingSphere = new THREE.Sphere(new THREE.Vector3(x0 + cs / 2, y0, z0 + cs / 2), cs * .75 + span * .4);
@@ -323,12 +350,17 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
   };
   for(let ix = -K; ix <= K; ix++) for(let iz = -K; iz <= K; iz++){
     const x0 = center.x + (ix - .5) * cs, z0 = center.z + (iz - .5) * cs, inner = Math.abs(ix) <= KI && Math.abs(iz) <= KI;
-    const ok = (x, z, rng, p) => rng() < p && Math.hypot(x - center.x, z - center.z) > span * .05 && pondD(x, z) > 1.08;
+    const ok = (x, z, rng, p, sub) => {                                           // bank-aware: thinner towards the water, nothing in it (except a little submerged grass)
+      if(Math.hypot(x - center.x, z - center.z) < span * .05) return false;
+      const above = -waterDepth(x, z) / span;
+      if(above < 0) return !!sub && above > -.012 && rng() < p * .12;
+      return rng() < p * (.12 + .88 * smooth(.0, .06, above));
+    };
     // grass: clumps ("tufts") with a loose scatter between them; thinner on slopes, dry ground and in clearings
     make('grass', ix, iz, x0, z0, ({rng, pt, put, count, N}) => {
       for(let i = 1; i < N * 3 && count() < N; i++){
         const [cx, cz] = pt(i), cy = height(cx, cz), m = wet(cx, cz), b = bare(cx, cz), sl = slopeAt(cx, cz, cy);
-        if(!ok(cx, cz, rng, clamp(1 - sl * 1.6, 0, 1) * (.3 + .7 * m) * (1 - .92 * b))) continue;
+        if(!ok(cx, cz, rng, clamp(1 - sl * 1.6, 0, 1) * (.3 + .7 * m) * (1 - .92 * b), true)) continue;
         const pn = patch.fbm(cx / span * 2.4, cz / span * 2.4), sp = pn > .62 ? 2 : pn > .42 ? 1 : 0, tuft = rng() < .6 ? 6 + ((rng() * 7) | 0) : 1;
         for(let j = 0; j < tuft && count() < N; j++){
           const a = rng() * 6.2832, r = tuft > 1 ? span * .02 * Math.sqrt(rng()) : 0, x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r, y = height(x, z);
@@ -340,7 +372,7 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
     // wildflowers: in patches, species chosen by a second noise field
     make('flowers', ix, iz, x0, z0, ({rng, pt, put, count, N}) => {
       for(let i = 1; i < N * 6 && count() < N; i++){
-        const [x, z] = pt(i), fp = flo.fbm(x / span * 1.7, z / span * 1.7); if(fp < .44 || !ok(x, z, rng, smooth(.44, .58, fp) * (1 - .9 * bare(x, z)))) continue;
+        const [x, z] = pt(i), fp = flo.fbm(x / span * 1.7, z / span * 1.7); if(fp < .5 || !ok(x, z, rng, smooth(.5, .64, fp) * (1 - .9 * bare(x, z)))) continue;
         const y = height(x, z), sp = Math.min(4, Math.floor(flo.fbm(x / span * .6 + 40, z / span * .6) * 5.5)), cl = FL[sp].map(v => clamp(v * (.9 + .2 * rng()), 0, 1));
         put(x, z, y, [span * (.06 + .07 * rng()), span * (.014 + .011 * rng()), rng(), rng() * 6.2832], [sp, rng(), .8, 0], cl);
       } });
@@ -357,7 +389,7 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
   // drifting leaves: one draw call, positions fully animated on the GPU
   { const N = 90, rng = mulberry(hashStr(seed + 'fall')), off = new Float32Array(N * 3), prm = new Float32Array(N * 4), msc = new Float32Array(N * 4), clr = new Float32Array(N * 3);
     for(let i = 0; i < N; i++){ off.set([rng() * 1e3, rng(), rng() * 1e3], i * 3); prm.set([1, span * (.01 + .008 * rng()), rng(), rng()], i * 4); const a = AUT[(rng() * AUT.length) | 0]; clr.set(a, i * 3); }
-    const g = new THREE.InstancedBufferGeometry(); g.index = leafQuad.index; for(const a of ['position', 'aPart', 'aAttach']) g.setAttribute(a, leafQuad.attributes[a]);
+    const g = new THREE.InstancedBufferGeometry(); g.index = leafQuad.index; for(const a of ['position', 'normal', 'aPart', 'aAttach']) g.setAttribute(a, leafQuad.attributes[a]);
     g.setAttribute('aOff', new THREE.InstancedBufferAttribute(off, 3)); g.setAttribute('aParam', new THREE.InstancedBufferAttribute(prm, 4)); g.setAttribute('aMisc', new THREE.InstancedBufferAttribute(msc, 4)); g.setAttribute('aColor', new THREE.InstancedBufferAttribute(clr, 3));
     g.instanceCount = N; const mesh = new THREE.Mesh(g, fallMat); mesh.frustumCulled = false; mesh.userData = {full: N, kind: 'fall'}; group.add(mesh); chunks.push(mesh); }
 
@@ -387,21 +419,20 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
   { const pos = new Float32Array(SN * 3), sd = new Float32Array(SN * 3), r = mulberry(hashStr(seed + 'splash'));
     for(let i = 0; i < SN; i++){ const a = r() * 6.2832, d = Math.sqrt(r()) * span * 3.4, x = center.x + Math.cos(a) * d, z = center.z + Math.sin(a) * d; if(pondD(x, z) < 1.1){ i--; continue; } pos.set([x, height(x, z), z], i * 3); sd.set([r(), .7 + r() * .9, r()], i * 3); }
     sg.setAttribute('aPos', new THREE.InstancedBufferAttribute(pos, 3)); sg.setAttribute('aSd', new THREE.InstancedBufferAttribute(sd, 3)); sg.instanceCount = SN; }
+  // ground splashes are NOT rings (rings are for water): a short spray star + a brief dark wet spot that soaks in
   const splash = new THREE.Mesh(sg, new THREE.ShaderMaterial({uniforms: {uTime: U.uTime, uSpan: U.uSpan, uRain: U.uRain}, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    vertexShader: `attribute vec3 aPos; attribute vec3 aSd; uniform float uTime, uSpan; varying vec2 vUv; varying float vT;
-      void main(){ float t = fract(uTime * (.6 + aSd.y * .5) + aSd.x * 7.); vT = t; vUv = position.xy;
-        float R = uSpan * (.012 + .016 * aSd.z) * (.25 + .75 * t) * aSd.y * 3.2;
-        vec3 w = aPos + vec3(position.x * R, uSpan * .02, position.y * R * .8);                                  // squashed circle lying on the ground
+    vertexShader: `attribute vec3 aPos; attribute vec3 aSd; uniform float uTime, uSpan; varying vec2 vUv; varying float vT, vS;
+      void main(){ float life = 1.1 + aSd.y * .9, t = fract((uTime + aSd.x * 11.) / life); vT = t; vUv = position.xy; vS = aSd.z * 6.2832;
+        float R = uSpan * (.008 + .008 * aSd.z) * (.6 + .4 * t) * 1.7;
+        vec3 w = aPos + vec3(position.x * R, uSpan * .02, position.y * R * .85);
         gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.); }`,
-    fragmentShader: `uniform float uRain; varying vec2 vUv; varying float vT;
-      void main(){ float r = length(vUv), edge = max(.14 - .1 * vT, .035);
-        float ring = smoothstep(edge, 0., abs(r - vT * .95)), inner = smoothstep(edge * .8, 0., abs(r - vT * .6)) * .75;
-        float flash = smoothstep(.45, 0., r) * smoothstep(.22, 0., vT);                                              // brief white impact spark
-        float a = (ring + inner + flash) * (1. - vT) * uRain;
-        a = step(.28, a) * min(1., a * 2.);                                                                         // cel: hard-edged rings
-        if(a < .05) discard;
-        vec3 col = mix(vec3(.45, .7, .95), vec3(.85, .94, 1.), flash);
-        gl_FragColor = vec4(col, a * .6); }`}));
+    fragmentShader: `uniform float uRain; varying vec2 vUv; varying float vT, vS;
+      void main(){ float r = length(vUv), ang = atan(vUv.y, vUv.x) + vS;
+        float spokes = pow(abs(sin(ang * 3.5)), 5.), burst = smoothstep(.45, .0, abs(r - (.15 + vT * .5))) * spokes * (1. - smoothstep(.0, .35, vT));      // quick spray, then gone
+        float spot = smoothstep(.75, .25, r) * (1. - smoothstep(.2, 1., vT)) * .5;                                                                     // wet spot soaking in
+        float a = max(burst, spot * .55) * uRain; if(a < .04) discard;
+        vec3 col = burst > spot * .55 ? vec3(.62, .8, .95) : vec3(.12, .17, .2);
+        gl_FragColor = vec4(col, a * (burst > spot * .55 ? .7 : .45)); }`}));
   splash.frustumCulled = false; splash.visible = false; group.add(splash);
 
   // ---- sky dome (follows the camera) with clouds
@@ -409,54 +440,64 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
     uTime: U.uTime, uCover: U.uCover, uSpan: U.uSpan, uSpeed: U.uSpeed, uWindDir: U.uWindDir};
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 20), new THREE.ShaderMaterial({vertexShader: SKY_VS, fragmentShader: SKY_FS, side: THREE.BackSide, depthWrite: false, depthTest: false, uniforms: skyU}));
   dome.renderOrder = -10; dome.frustumCulled = false; group.add(dome);
-  // ---- pond water: translucent (depth baked from the real terrain: clear in the shallows, tinted when deep), reflects the sky at grazing
-  //      angles, banded "anime" ripples from raindrops, thin pale shoreline foam.
-  const DN = 128, half = pond.R * 1.9, dd = new Uint8Array(DN * DN * 4);
-  for(let j = 0; j < DN; j++) for(let i = 0; i < DN; i++){ const x = pond.cx + ((i + .5) / DN * 2 - 1) * half, z = pond.cz + ((j + .5) / DN * 2 - 1) * half, d = clamp((pond.wl - height(x, z)) / pond.depth, 0, 1); dd.set([d * 255, 0, 0, 255], (j * DN + i) * 4); }
+  // ---- pond water. Depth comes from the real terrain (baked into a texture): clear in the shallows, progressively more opaque and
+  //      darker with depth, so the bed shows through near the bank and there is no hard edge. Surface: low-frequency wind-driven waves
+  //      (the shared wind), raindrop ripples with random size / lifetime / start time, Fresnel reflection (strong only at grazing angles).
+  const DN = 160, half = pond.R * 1.9, dd = new Uint8Array(DN * DN * 4);
+  for(let j = 0; j < DN; j++) for(let i = 0; i < DN; i++){ const x = pond.cx + ((i + .5) / DN * 2 - 1) * half, z = pond.cz + ((j + .5) / DN * 2 - 1) * half, d = clamp(waterDepth(x, z) / pond.depth, 0, 1); dd.set([d * 255, 0, 0, 255], (j * DN + i) * 4); }
   const depthTex = new THREE.DataTexture(dd, DN, DN, THREE.RGBAFormat); depthTex.magFilter = depthTex.minFilter = THREE.LinearFilter; depthTex.needsUpdate = true;
-  const waterU = {uTime: U.uTime, uSpan: U.uSpan, uRain: U.uRain, uCam: U.uCamPos, uSun: skyU.uSun, uSunCol: skyU.uSunCol, uHorizon: skyU.uHorizon, uZenith: skyU.uZenith, uDepth: {value: depthTex}, uBox: {value: new THREE.Vector3(pond.cx, pond.cz, half)}, uMaxD: {value: pond.depth}, uFog: {value: new THREE.Vector2(1, 2)}};
+  const waterU = {uTime: U.uTime, uSpan: U.uSpan, uRain: U.uRain, uWind: U.uWind, uSpeed: U.uSpeed, uWindDir: U.uWindDir, uCam: U.uCamPos, uSun: skyU.uSun, uSunCol: skyU.uSunCol, uHorizon: skyU.uHorizon, uZenith: skyU.uZenith,
+    uDepth: {value: depthTex}, uBox: {value: new THREE.Vector3(pond.cx, pond.cz, half)}, uMaxD: {value: pond.depth}, uFog: {value: new THREE.Vector2(1, 2)}};
   const water = new THREE.Mesh(new THREE.PlaneGeometry(half * 2, half * 2).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({uniforms: waterU, transparent: true, depthWrite: false,
     vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: `uniform float uTime, uSpan, uRain, uMaxD; uniform vec3 uCam, uSun, uSunCol, uHorizon, uZenith, uBox; uniform vec2 uFog; uniform sampler2D uDepth; varying vec3 vW;
+    fragmentShader: `uniform float uTime, uSpan, uRain, uMaxD, uWind, uSpeed; uniform vec2 uWindDir, uFog; uniform vec3 uCam, uSun, uSunCol, uHorizon, uZenith, uBox; uniform sampler2D uDepth; varying vec3 vW;
       float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-      float ringH(vec2 p){                                                       // expanding rings from random drops on a jittered grid
-        float act = clamp(uRain * .9 + .07, 0., 1.), s = 0.; vec2 q = p / (uSpan * .07), cell = floor(q), f = fract(q);
+      float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
+      // raindrop ripples: a drop per jittered cell; each has its own start time, lifetime, final radius, strength and slight ellipse/wobble
+      float ringH(vec2 p, float scale, float act){
+        vec2 q = p / (uSpan * scale), cell = floor(q), f = fract(q); float s = 0.;
         for(int j = -1; j <= 1; j++) for(int i = -1; i <= 1; i++){
-          vec2 id = cell + vec2(float(i), float(j)); float a = h21(id), b = h21(id + 17.3), c = h21(id + 5.1); if(a > act) continue;
-          float t = fract(uTime * (.45 + c * .5) + b * 9.); vec2 d = vec2(float(i), float(j)) + vec2(b, c) * .8 + .1 - f; float r = length(d);
-          s += (exp(-pow((r - t * 1.1) * 7., 2.)) + .6 * exp(-pow((r - t * .6) * 9., 2.))) * (1. - t) * (1. - t); }
+          vec2 id = cell + vec2(float(i), float(j)); float a = h21(id), b = h21(id + 17.3), c = h21(id + 5.1), d = h21(id + 29.7); if(a > act) continue;
+          float life = 1.2 + 1.8 * c, t = fract((uTime + b * 13.) / life), maxR = .3 + .65 * d;
+          vec2 off = vec2(float(i), float(j)) + vec2(b, c) * .7 + .15 - f; off.x *= 1. + .2 * (d - .5);
+          float r = length(off), R = t * maxR + .03 * sin(atan(off.y, off.x) * 4. + b * 20.), w = mix(.045, .12, t), amp = (1. - t) * (1. - t) * (.35 + .9 * d);
+          s += (exp(-pow((r - R) / w, 2.)) - .45 * exp(-pow((r - R * .62) / (w * 1.3), 2.))) * amp; }
         return s; }
+      float rip(vec2 p){ float act = clamp(uRain * .85 + .05, 0., 1.); return ringH(p, .075, act) + ringH(p + 7.3, .042, act * .55); }
       void main(){
-        vec2 uv = (vW.xz - uBox.xy) / (uBox.z * 2.) + .5; float depth = texture2D(uDepth, uv).r;           // 0 shore .. 1 deepest
-        if(depth < .004) discard;
-        vec2 p = vW.xz; float e = uSpan * .004, h0 = ringH(p);
-        vec3 n = normalize(vec3(ringH(p + vec2(e, 0.)) - h0, .09, ringH(p + vec2(0., e)) - h0));
-        n.xz += vec2(sin(vW.x / uSpan * 37. + uTime * 1.3), cos(vW.z / uSpan * 29. - uTime)) * .018; n = normalize(n);
+        vec2 uv = (vW.xz - uBox.xy) / (uBox.z * 2.) + .5; float dn = texture2D(uDepth, uv).r, dm = dn * uMaxD;
+        vec2 p = vW.xz; float e = uSpan * .003, h0 = rip(p), hx = rip(p + vec2(e, 0.)), hz = rip(p + vec2(0., e));
+        // wind waves: two crossing trains along the shared wind, amplitude from wind strength, plus slow breakup
+        float A = .002 + .006 * uWind, k1 = 6.2832 / (uSpan * .7), k2 = 6.2832 / (uSpan * .33);
+        vec2 w1 = uWindDir, w2 = normalize(uWindDir + vec2(-uWindDir.y, uWindDir.x) * .6);
+        vec2 slope = w1 * cos(dot(p, w1) * k1 - uTime * uSpeed * .85) * k1 * A * uSpan + w2 * cos(dot(p, w2) * k2 - uTime * uSpeed * 1.25) * k2 * A * .5 * uSpan
+                   + (vec2(vn(p / uSpan * 3. + uTime * .05), vn(p / uSpan * 3. - uTime * .04 + 9.)) - .5) * (.008 + .02 * uWind);
+        vec3 n = normalize(vec3((hx - h0) * 8. - slope.x, 1., (hz - h0) * 8. - slope.y));      // slopes of waves + ripples, y = 1
         vec3 V = normalize(uCam - vW), R = reflect(-V, n);
-        vec3 sky = mix(uHorizon, uZenith, pow(clamp(R.y, 0., 1.), .55));
-        float fres = .04 + .96 * pow(1. - max(dot(n, V), 0.), 4.);
-        vec3 body = mix(vec3(.2, .42, .38), vec3(.03, .15, .2), smoothstep(0., .8, depth));                   // shallow green-teal -> deep blue
-        vec3 col = mix(body, sky, fres * .85) + uSunCol * pow(max(dot(R, uSun), 0.), 500.) * 2.5;
-        col += vec3(.7, .88, 1.) * smoothstep(.5, .8, h0) * .35;                                              // ripple crests catch light (soft, tinted)
-        col = mix(col, floor(col * 8. + .5) / 8., .5);                                                         // light cel banding
-        float foam = smoothstep(.1, .0, depth) * smoothstep(.0, .02, depth) * (.5 + .5 * sin(vW.x * 9. / uSpan + uTime));
-        col = mix(col, vec3(.8, .9, .9), foam * .55);
+        vec3 sky = mix(uHorizon, uZenith, pow(clamp(R.y, 0., 1.), .55)) * vec3(.92, .96, 1.);
+        float fres = .02 + .98 * pow(1. - max(dot(n, V), 0.), 5.);                                           // Schlick: strong only at grazing angles
+        vec3 scat = mix(vec3(.13, .27, .2), vec3(.02, .1, .14), smoothstep(0., .9, dn)) * (.85 + .3 * vn(p / uSpan * 1.5));   // murky green shallows -> dark teal deeps (not uniform blue)
+        float body = 1. - exp(-dm / (uSpan * .1));                                                           // Beer-Lambert-ish opacity: clear in the shallows, builds with depth
+        vec3 col = mix(scat, sky, fres) + uSunCol * pow(max(dot(R, uSun), 0.), 220.) * (.5 + .6 * uWind) * fres;
+        col += vec3(.75, .88, 1.) * smoothstep(.55, .9, h0) * .12;                                             // ripple crests, soft
+        float edge = smoothstep(.0, .012, dn) * (1. - smoothstep(.012, .05, dn));                              // foam only on the shore line, broken up, and only when windy
+        float foam = edge * smoothstep(.62, .85, vn(p / uSpan * 38. + uTime * .25) * vn(p / uSpan * 17. - uTime * .1)) * (.15 + uWind) * .8;
+        col = mix(col, vec3(.86, .9, .88), clamp(foam, 0., .4));
         col = mix(col, uHorizon, smoothstep(uFog.x, uFog.y, distance(uCam, vW)));
-        float alpha = clamp(1. - exp(-depth * 4.5), 0., 1.) * mix(.55, .9, fres) + foam * .25;                // see-through shallows, tinted deeps
-        gl_FragColor = vec4(col, alpha); }`}));
+        float alpha = mix(body * .92, 1., fres * .9) * smoothstep(.0, .05, dn) + foam * .15;
+        gl_FragColor = vec4(col, clamp(alpha, 0., 1.)); }`}));
   water.position.set(pond.cx, pond.wl, pond.cz); water.renderOrder = 2; water.frustumCulled = false; group.add(water);
 
   // ---- water plants: lily pads, lotus (leaves + flowers), cattails and shore reeds
-  const aquatic = [], depthAt = (x, z) => pond.wl - height(x, z);
+  const aquatic = []; let api_spots = [];
   const staticKind = (geo, mat, n, fill) => {
     const rng = mulberry(hashStr(seed + ':aq:' + aquatic.length)), off = new Float32Array(n * 3), prm = new Float32Array(n * 4), msc = new Float32Array(n * 4), clr = new Float32Array(n * 3); let m = 0;
     const put = (x, y, z, p, mi, cl) => { off.set([x, y, z], m * 3); prm.set(p, m * 4); msc.set(mi, m * 4); if(cl) clr.set(cl, m * 3); m++; };
     fill({rng, put, count: () => m, n});
-    const g = new THREE.InstancedBufferGeometry(); g.index = geo.index; for(const a of ['position', 'aPart', 'aAttach']) g.setAttribute(a, geo.attributes[a]);
+    const g = new THREE.InstancedBufferGeometry(); g.index = geo.index; for(const a of ['position', 'normal', 'aPart', 'aAttach']) g.setAttribute(a, geo.attributes[a]);
     g.setAttribute('aOff', new THREE.InstancedBufferAttribute(off.subarray(0, m * 3), 3)); g.setAttribute('aParam', new THREE.InstancedBufferAttribute(prm.subarray(0, m * 4), 4));
     g.setAttribute('aMisc', new THREE.InstancedBufferAttribute(msc.subarray(0, m * 4), 4)); g.setAttribute('aColor', new THREE.InstancedBufferAttribute(clr.subarray(0, m * 3), 3));
     g.instanceCount = m; const mesh = new THREE.Mesh(g, mat); mesh.frustumCulled = false; mesh.receiveShadow = true; group.add(mesh); aquatic.push({mesh, full: m}); };
-  const inPond = (x, z, lo, hi) => { const d = pondD(x, z); return d > lo && d < hi; };
   { // geometry
     const padPos = [0, 0, 0], padIdx = [], SEGS = 20; for(let i = 0; i <= SEGS; i++){ const a = .32 + i / SEGS * (Math.PI * 2 - .32); padPos.push(Math.cos(a), 0, Math.sin(a)); } for(let i = 1; i <= SEGS; i++) padIdx.push(0, i, i + 1);
     const padGeo = geo([{pos: padPos, idx: padIdx, part: 3}]);
@@ -473,18 +514,37 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
     const hp = [], hi = []; for(let i = 0; i < 6; i++){ const a = i / 6 * Math.PI * 2; hp.push(Math.cos(a) * .2, 0, Math.sin(a) * .2, Math.cos(a) * .2, 1, Math.sin(a) * .2); } for(let i = 0; i < 6; i++){ const a = i * 2, b = (i + 1) % 6 * 2; hi.push(a, a + 1, b, a + 1, b + 1, b); }
     const cattail = geo([{...ribbon(4, .1, 1), part: 0}, {pos: hp, idx: hi, part: 2, attach: Array(hp.length / 3).fill(1)}]);
     const padMat = vegMaterial(U, PAD_VS, 'pad'), reedGeo = grassGeo;
-    // placement
-    staticKind(padGeo, padMat, 90, ({rng, put, count, n}) => { for(let i = 1; i < n * 12 && count() < n; i++){ const a = rng() * 6.2832, r = Math.sqrt(rng()) * pond.R * 1.1, x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r;
-      if(pondD(x, z) > .93 || depthAt(x, z) < span * .018) continue; put(x, pond.wl, z, [1, span * (.03 + .05 * rng()), rng(), rng() * 6.2832], [0, rng(), 0, 0], [.85 + .3 * rng(), 0, 0]); } });
-    staticKind(lotusLeaf, plantMat, 18, ({rng, put, count, n}) => { for(let i = 1; i < n * 14 && count() < n; i++){ const a = rng() * 6.2832, r = Math.sqrt(rng()) * pond.R * .9, x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r, y = height(x, z);
-      if(pondD(x, z) > .85 || pond.wl - y < span * .05) continue; put(x, y, z, [(pond.wl - y) + span * (.1 + .16 * rng()), span * (.07 + .05 * rng()), rng(), rng() * 6.2832], [9, rng(), .45, 0]); } });
+    // placement: plants live in distinct ecological zones taken from the REAL terrain depth, in colonies (noise fields), never overlapping
+    //   dry bank -> reeds / cattails (damp bank + a few cm of water) -> shallow water: lily pads -> deeper: lotus -> open water
+    const aq = new Noise(hashStr(seed + 'aq')), taken = [], dep = (x, z) => waterDepth(x, z) / span;
+    const free = (x, z, r) => taken.every(t => Math.hypot(t[0] - x, t[1] - z) > t[2] + r), claim = (x, z, r) => taken.push([x, z, r]);
+    const around = (rng, k) => { const a = rng() * 6.2832, r = Math.sqrt(rng()) * pond.R * k; return [pond.cx + Math.cos(a) * r, pond.cz + Math.sin(a) * r]; };
     const PINK = [[.96, .55, .7], [.97, .95, .93], [.93, .45, .62]];
-    staticKind(lotusFlower, plantMat, 8, ({rng, put, count, n}) => { for(let i = 1; i < n * 20 && count() < n; i++){ const a = rng() * 6.2832, r = Math.sqrt(rng()) * pond.R * .8, x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r, y = height(x, z);
-      if(pondD(x, z) > .8 || pond.wl - y < span * .06) continue; put(x, y, z, [(pond.wl - y) + span * (.2 + .14 * rng()), span * (.045 + .02 * rng()), rng(), rng() * 6.2832], [0, rng(), .5, 0], PINK[(rng() * 3) | 0]); } });
-    staticKind(cattail, plantMat, 70, ({rng, put, count, n}) => { for(let i = 1; i < n * 20 && count() < n; i++){ const a = rng() * 6.2832, r = pond.R * (.95 + .5 * rng()), x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r;
-      if(!inPond(x, z, .96, 1.32) || rng() < .3) continue; const y = height(x, z); put(x, y, z, [span * (.17 + .13 * rng()), span * .05, rng(), rng() * 6.2832], [5, rng(), .6, 0]); } });
-    staticKind(reedGeo, grassMat, 500, ({rng, put, count, n}) => { for(let i = 1; i < n * 12 && count() < n; i++){ const a = rng() * 6.2832, r = pond.R * (.85 + .6 * rng()), x = pond.cx + Math.cos(a) * r, z = pond.cz + Math.sin(a) * r;
-      if(!inPond(x, z, .9, 1.38)) continue; const y = height(x, z), hh = span * (.12 + .14 * rng()); put(x, y, z, [hh, hh * .05, rng(), rng() * 6.2832], [2, clamp(.2 + rng() * .5, 0, 1), 1.1, .2 + rng() * .4]); } });
+    staticKind(padGeo, vegMaterial(U, PAD_VS, 'pad'), 56, ({rng, put, count, n}) => { for(let i = 1; i < n * 40 && count() < n; i++){ const [x, z] = around(rng, 1.15), d = dep(x, z), size = span * (.02 + .05 * rng() * rng());
+      if(d < .03 || d > .1 || aq.fbm(x / span * 2.2, z / span * 2.2) < .46 || !free(x, z, size * 1.05)) continue; claim(x, z, size * 1.05);
+      put(x, pond.wl, z, [1, size, rng(), rng() * 6.2832], [0, rng(), 0, 0], [.8 + .35 * rng(), 0, 0]); } });
+    staticKind(lotusLeaf, plantMat, 11, ({rng, put, count, n}) => { for(let i = 1; i < n * 60 && count() < n; i++){ const [x, z] = around(rng, .95), d = dep(x, z), size = span * (.05 + .05 * Math.pow(rng(), 1.5)), y = height(x, z);
+      if(d < .055 || d > .13 || aq.fbm(x / span * 2.2 + 7, z / span * 2.2) < .5 || !free(x, z, size * .85)) continue; claim(x, z, size * .85);
+      put(x, y, z, [(pond.wl - y) + span * (.1 + .16 * rng()), size, rng(), rng() * 6.2832], [9, rng(), .45, 0]); } });
+    staticKind(lotusFlower, plantMat, 5, ({rng, put, count, n}) => { for(let i = 1; i < n * 80 && count() < n; i++){ const [x, z] = around(rng, .9), d = dep(x, z), size = span * (.04 + .022 * rng()), y = height(x, z);
+      if(d < .06 || d > .13 || aq.fbm(x / span * 2.2 + 7, z / span * 2.2) < .5 || !free(x, z, size * 1.1)) continue; claim(x, z, size * 1.1);
+      const k = rng(), open = k < .4 ? 1 : k < .7 ? .55 : .2;                                              // fully open / half open / bud
+      put(x, y, z, [(pond.wl - y) + span * (.17 + .14 * rng()), size * (.7 + .3 * open), rng(), rng() * 6.2832], [0, rng(), .5, open], PINK[(rng() * 3) | 0]); } });
+    const spots = [];                                                                                      // where dragonflies / fireflies like to be
+    staticKind(cattail, plantMat, 26, ({rng, put, count, n}) => { for(let i = 1; i < n * 200 && count() < n; i++){ const [x, z] = around(rng, 1.5), ab = -dep(x, z);
+      if(ab < -.012 || ab > .045 || aq.fbm(x / span * 3. + 21, z / span * 3.) < .52 || !free(x, z, span * .012)) continue; claim(x, z, span * .012);
+      put(x, height(x, z), z, [span * (.15 + .16 * rng()), span * .034, rng(), rng() * 6.2832], [5, rng(), .6, .7 + .4 * rng()], [.9 + .6 * rng(), .35 + .25 * rng(), 0]); spots.push([x, pond.wl, z]); } });
+    staticKind(grassGeo, grassMat, 420, ({rng, put, count, n}) => {                                         // reed clumps on the bank / very shallow edge
+      for(let c = 0; c < 400 && count() < n; c++){ const [cx, cz] = around(rng, 1.5), ab = -dep(cx, cz); if(ab < -.025 || ab > .05 || aq.fbm(cx / span * 3. + 40, cz / span * 3.) < .5) continue; spots.push([cx, pond.wl, cz]);
+        const blades = 10 + ((rng() * 16) | 0); for(let j = 0; j < blades && count() < n; j++){ const a = rng() * 6.2832, r = span * .02 * Math.sqrt(rng()), x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r, hh = span * (.12 + .13 * rng());
+          put(x, height(x, z), z, [hh, hh * (.035 + .02 * rng()), rng(), rng() * 6.2832], [2, clamp(.2 + rng() * .5, 0, 1), 1.1, .15 + rng() * .5]); } } });
+    api_spots = spots;
+    // stones along the waterline (instanced, flat-shaded, partly sunk)
+    { const SN2 = 130, ico = new THREE.IcosahedronGeometry(1, 0), im = new THREE.InstancedMesh(ico, new THREE.MeshStandardMaterial({roughness: 1, flatShading: true}), SN2), r = mulberry(hashStr(seed + 'stones')), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), col2 = new THREE.Color(); let k = 0;
+      for(let t = 0; t < SN2 * 40 && k < SN2; t++){ const [x, z] = around(r, 1.45), ab = -dep(x, z); if(ab < -.02 || ab > .045) continue; const sz = span * (.004 + .014 * r() * r());
+        e.set(r() * 3, r() * 6, r() * 3); q.setFromEuler(e); m4.compose(new THREE.Vector3(x, height(x, z) + sz * .15, z), q, new THREE.Vector3(sz * (1 + .5 * r()), sz * (.5 + .4 * r()), sz * (1 + .4 * r())));
+        im.setMatrixAt(k, m4); im.setColorAt(k, col2.setRGB(.34 + .16 * r(), .32 + .14 * r(), .28 + .1 * r(), THREE.SRGBColorSpace)); k++; }
+      im.count = k; im.receiveShadow = true; im.castShadow = false; group.add(im); }
   }
 
   // ---- rain impact droplets: tiny translucent beads thrown up from each impact (ground and water), ballistic arcs
@@ -523,7 +583,7 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
     },
     update(t, camera){
       // adaptive quality: if frames get slow, thin the grass/flowers (down to 35%); recover when there is headroom
-      const dt = Math.min(.25, Math.max(0, t - (api._t ?? t))); api._t = t; api._ema = (api._ema ?? .016) * .95 + dt * .05;
+      const dt = Math.max(0, t - (api._t ?? t)); api._t = t; if(dt < .12) api._ema = (api._ema ?? .016) * .95 + dt * .05;      // ignore stalls (hidden tab, GC): they say nothing about GPU cost
       if(api._ema > .026) api.perf = Math.max(.35, (api.perf ?? 1) - dt * .08); else if(api._ema < .0185) api.perf = Math.min(1, (api.perf ?? 1) + dt * .03);
       wind.time = t; U.uTime.value = t; U.uCamPos.value.copy(camera.position); U.uWind.value = wind.strength; U.uGust.value = wind.gust; U.uSpeed.value = wind.speed; skyU.uCam.value.copy(camera.position);
       dome.position.copy(camera.position); dome.scale.setScalar(camera.far * .45);
@@ -535,7 +595,7 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
         m.geometry.instanceCount = Math.floor(m.userData.full * lod * clamp(share[m.userData.kind], 0, 1)); m.visible = m.geometry.instanceCount > 0;
       }
     },
-    pond, pondD, inPond: (x, z) => pondD(x, z) < 1,
+    pond, pondD, waterDepth, inPond: (x, z) => waterDepth(x, z) > 0, get spots(){ return api_spots; },
     setBodies(list){ list.slice(0, 5).forEach((b, i) => U.uBodies.value[i + 1].set(b.x, b.z, b.r, b.k ?? .7)); for(let i = list.length; i < 5; i++) U.uBodies.value[i + 1].set(0, 0, 1, 0); },
     stats(){ const o = {}; for(const m of chunks){ const k = m.userData.kind; o[k] = o[k] || {buffered: 0, drawn: 0}; o[k].buffered += m.userData.full; o[k].drawn += m.visible ? m.geometry.instanceCount : 0; } return o; },
     dispose(){ scene.fog = null; scene.remove(group); group.traverse(o => { o.geometry?.dispose(); o.material?.dispose?.(); }); },

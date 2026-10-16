@@ -91,7 +91,7 @@ h3:first-child{margin-top:0}
 .files div{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
 .files small{color:var(--dim);flex:none}
 </style>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"}}</script>
 </head>
 <body>
 <header id="hLib">
@@ -163,7 +163,7 @@ const pickModel = it => it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b)
 // Some FBX exports have broken blend-shape data that crashes three's stock loader; retry with morph targets skipped.
 let fbxPatched;
 const patchedFBX = () => fbxPatched ??= (async () => {
-  const base = 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/FBXLoader.js';
+  const base = 'https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/loaders/FBXLoader.js';
   const src = (await (await fetch(base)).text()).replace("'../libs/fflate.module.js'", "'three/addons/libs/fflate.module.js'")
     .replace("'../curves/NURBSCurve.js'", "'three/addons/curves/NURBSCurve.js'").replace('const rawMorphTargets = [];', 'const rawMorphTargets = []; if(true) return rawMorphTargets;');
   return (await import(URL.createObjectURL(new Blob([src], {type:'text/javascript'})))).FBXLoader;
@@ -187,7 +187,7 @@ function fetchModel(it, file, onProg){
     const e = ext(file.n), u = url(it, file.n);
     if(e==='glb'||e==='gltf') new GLTFLoader(mgr).load(u, g => { g.scene.animations = g.animations; res(g.scene); }, onProg, rej);
     else if(e==='fbx') new FBXLoader(mgr).load(u, res, onProg, err => err instanceof TypeError ? patchedFBX().then(L => new L(mgr).load(u, res, onProg, rej), rej) : rej(err));
-    else if(e==='pmx'||e==='pmd') import('three/addons/loaders/MMDLoader.js').then(({MMDLoader}) => {
+    else if(e==='pmx'||e==='pmd') import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/MMDLoader.js').then(({MMDLoader}) => {
       const vmds = it.files.filter(f => ext(f.n)==='vmd').map(f => url(it, f.n));
       const l = new MMDLoader(mgr);
       if(vmds.length) l.loadWithAnimation(u, vmds, m => { m.mesh.animations = [m.animation]; res(m.mesh); }, onProg, rej);
@@ -446,7 +446,7 @@ async function vmdInfo(it){
   if(!v) return;
   const my = cur;
   try{
-    const mod = await import('three/addons/libs/mmdparser.module.js'); const P = mod.MMDParser || mod;
+    const mod = await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/mmdparser.module.js'); const P = mod.MMDParser || mod;
     const buf = await (await fetch(url(it, v.n))).arrayBuffer();
     const d = new P.Parser().parseVmd(buf, true);
     const bones = new Set(d.motions.map(m => m.boneName)), last = Math.max(0, ...d.motions.map(m => m.frameNum));

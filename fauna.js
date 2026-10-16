@@ -29,7 +29,7 @@ function mossy(mat, key){
       .replace('#include <color_fragment>', `#include <color_fragment>
       { float n = mn(vMP * 9.) * .6 + mn(vMP * 31.) * .4, low = ${key === 'rock' ? '.55' : '.25'};
         float up = smoothstep(.25, .8, vMN.y + (n - .5) * .7), base = smoothstep(low, -.3, vMP.y * ${key === 'rock' ? '1.4' : '.9'} + (n - .5) * .5);
-        float moss = clamp(up * ${key === 'rock' ? '1.0' : '.75'} + base * .6, 0., 1) * smoothstep(.25, .6, n + .2);
+        float moss = clamp(up * ${key === 'rock' ? '1.0' : '.75'} + base * .6, 0., 1.) * smoothstep(.25, .6, n + .2);
         vec3 mc = pow(mix(vec3(.08, .19, .05), vec3(.25, .42, .1), mn(vMP * 60.)), vec3(2.2));
         diffuseColor.rgb *= .75 + .5 * n; diffuseColor.rgb = mix(diffuseColor.rgb, mc, moss * .9); }`);
   };
@@ -43,19 +43,22 @@ export class Fauna {
     this.group.position.copy(center); this.group.scale.setScalar(this.M); scene.add(this.group);
     this.person = new V(0, 1.0, 0);
     this.ground = (x, z) => (meadow.ground(center.x + x * this.M, center.z + z * this.M) - center.y) / this.M;
-    this.perches = []; this.#props();
+    this.perches = []; this.shoreSpots = []; this.#props();
   }
   r(a, b){ return a + (b - a) * this.rnd(); }
   pick(items){ let t = items.reduce((s, i) => s + i[1], 0) * this.rnd(); for(const [v, w] of items){ if((t -= w) <= 0) return v; } return items[0][0]; }
-  inWater(x, z){ return this.meadow.pondD(this.center.x + x * this.M, this.center.z + z * this.M) < 1.15; }
+  inWater(x, z){ return this.meadow.waterDepth(this.center.x + x * this.M, this.center.z + z * this.M) > this.span * .006; }     // real terrain depth: wading deeper than ~1 cm is water
   ringPoint(a, b){ let x = 0, z = 0; for(let k = 0; k < 14; k++){ const ang = this.rnd() * TAU, r = this.r(a, b); x = Math.sin(ang) * r; z = Math.cos(ang) * r; if(!this.inWater(x, z)) break; } return [x, z]; }
-  shore(a){                                                           // a dry spot on the bank nearest the animal, for drinking
+  // bank point along the ray from the pond centre towards (ax, az): walk outward until the terrain climbs out of the water, then step a little further
+  bank(ax, az, extra = .03){
     const m = this.meadow, M = this.M, c = this.center, px = (m.pond.cx - c.x) / M, pz = (m.pond.cz - c.z) / M;
-    let dx = a.position.x - px, dz = a.position.z - pz; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L; let d = m.pond.R / M * .85;
-    for(let k = 0; k < 40; k++){ const x = px + dx * d, z = pz + dz * d; if(m.pondD(c.x + x * M, c.z + z * M) > 1.1) return [x, z]; d *= 1.05; }
-    return [px + dx * d, pz + dz * d];
+    let dx = ax - px, dz = az - pz; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+    let d = 0, step = m.pond.R / M * .02, k = 0; while(k++ < 200 && m.waterDepth(c.x + (px + dx * d) * M, c.z + (pz + dz * d) * M) > 0) d += step;
+    d += this.span / M * extra; return [px + dx * d, pz + dz * d];
   }
-  #drink(rec){ const [x, z] = this.shore(rec.a), M = this.M; this.#walk(rec, x, z, this.#gear(rec.a, 'walk', 'shuffle', 'hop'), () => this.#act(rec, 'drink', {duration: this.r(4, 8)})); }
+  shore(a){ return this.bank(a.position.x, a.position.z); }
+  #drink(rec){ const [x, z] = this.shore(rec.a); rec.thirst = this.r(45, 100);
+    this.#walk(rec, x, z, this.#gear(rec.a, 'walk', 'shuffle', 'hop'), () => this.#act(rec, 'drink', {duration: this.r(4, 8)}, () => { const [bx, bz] = this.ringPoint(2.4, 3.3); this.#walk(rec, bx, bz, this.#gear(rec.a, 'walk', 'shuffle', 'hop')); })); }   // go, drink, pause, leave
 
   // ---- perch props: weathered fence posts, a stump and rocks (also give birds somewhere to land)
   #props(){
@@ -67,6 +70,11 @@ export class Fauna {
     for(let i = 0; i < 2; i++){ const a = a0 + 3.6 + i * 1.3, r = 2.6 + this.rnd() * .8, g = new THREE.IcosahedronGeometry(.36, 1), p = g.attributes.position;
       for(let k = 0; k < p.count; k++){ const s = 1 + (this.rnd() - .5) * .35; p.setXYZ(k, p.getX(k) * s, p.getY(k) * s * .75, p.getZ(k) * s); } g.computeVertexNormals();
       add(new THREE.Mesh(g, rock), Math.sin(a) * r, Math.cos(a) * r, .3, .18); }
+    // two perches on the pond bank (a rock half in the water, a leaning post) so birds can sit by the shore and fly across it
+    { const pd = new V((this.meadow.pond.cx - this.center.x) / this.M, 0, (this.meadow.pond.cz - this.center.z) / this.M); const toward = Math.atan2(-pd.x, -pd.z);
+      [[toward + .75, 'rock'], [toward - .9, 'post']].forEach(([ang, kind]) => { const [bx, bz] = this.bank(pd.x + Math.sin(ang) * 3, pd.z + Math.cos(ang) * 3, kind === 'rock' ? -.004 : .02); this.shoreSpots.push([bx, bz]);
+        if(kind === 'rock'){ const g = new THREE.IcosahedronGeometry(.34, 1), p = g.attributes.position; for(let k = 0; k < p.count; k++){ const s = 1 + (this.rnd() - .5) * .3; p.setXYZ(k, p.getX(k) * s, p.getY(k) * s * .7, p.getZ(k) * s); } g.computeVertexNormals(); add(new THREE.Mesh(g, rock), bx, bz, .27, .14); }
+        else { const m = new THREE.Mesh(new THREE.BoxGeometry(.11, 1.0, .11), wood); m.rotation.set((this.rnd() - .5) * .25, this.rnd() * 3, (this.rnd() - .5) * .25); add(m, bx, bz, 1.02, .48); } }); }
   }
 
   // ---- population follows the wildlife level
@@ -79,7 +87,7 @@ export class Fauna {
       const lib = this.lib ??= await import('./vendor/procedural-animals/src/index.js');
       while(!this.dead && this.recs.length < ROSTER.filter(([, min]) => this.level >= min).length){
         const idx = this.recs.length, [kind] = ROSTER[idx], seed = 3 + idx * 7 + (hashStr(String(this.rnd())) % 50);
-        const [x, z] = this.ringPoint(1.9, 3.3), heading = this.rnd() * TAU;
+        const [x, z] = this.ringPoint(2.7, 3.4), heading = this.rnd() * TAU;
         const a = await lib.createAnimal(kind, {seed, quality: 'medium', worker: false, ground: this.ground, water: (x, z) => this.inWater(x, z) ? (this.meadow.pond.wl - this.center.y) / this.M : null, perches: this.perches, position: new V(x, this.ground(x, z), z), heading});
         if(this.dead){ a.dispose(); return; }
         this.group.add(a.object); this.#mind(kind, a); await new Promise(r => setTimeout(r, 80));   // yield so frames keep rendering between builds
@@ -90,15 +98,21 @@ export class Fauna {
   // ---- behaviour: one small state machine per animal, with its own temperament
   #mind(kind, a){
     const rec = {kind, a, state: 'idle', t: this.r(.5, 3), after: null, tr: {
-      alert: this.r(1.9, 2.6), flee: this.r(1.0, 1.5), calm: this.r(.7, 1.4), curious: this.rnd(), lazy: this.rnd(), range: this.r(1.5, 3.3), bold: this.r(.8, 1.4)}};
+      alert: this.r(1.9, 2.6), flee: this.r(1.0, 1.5), calm: this.r(.7, 1.4), curious: this.rnd(), lazy: this.rnd(), range: this.r(1.5, 3.3), bold: this.r(.8, 1.4), habit: 1}, thirst: this.r(14, 34)};
     a.on('arrive', () => { if(rec.state === 'walk'){ rec.state = 'idle'; rec.t = this.r(.6, 3.5) * (.6 + rec.tr.lazy); const f = rec.after; rec.after = null; f?.(); } });
     if(kind === 'crow') a.on('takeoff', () => this.#flockReact(rec));
     this.recs.push(rec);
   }
   #dist(a){ return Math.hypot(a.position.x, a.position.z); }
   #gear(a, ...names){ for(const n of names) if(a.gears[n]) return a.gears[n]; return Object.values(a.gears).sort((x, y) => x - y)[0]; }
-  #act(rec, name, opts, then){ rec.state = 'act'; rec.a.play(name, opts).then(res => { if(rec.state === 'act'){ rec.state = 'idle'; rec.t = this.r(.5, 3) * (.5 + rec.tr.lazy); then?.(res); } }); }
-  #walk(rec, x, z, speed, after){ const R = Math.hypot(x, z); if(R > FIELD_R){ x *= FIELD_R / R; z *= FIELD_R / R; } rec.state = 'walk'; rec.after = after; rec.t = 16; rec.a.lookAt(null); rec.a.moveTo(new V(x, this.ground(x, z), z), {speed}); }
+  #act(rec, name, opts, then){                                         // postures (sit/lie/loaf/sleep) hold until told otherwise, so every action gets a timer
+    const posture = ['sit', 'lie', 'loaf', 'sleep'].includes(name), dur = opts?.duration ? opts.duration + 1.5 : posture ? this.r(5, 14) : this.r(3.5, 6.5);
+    rec.state = 'act'; rec.t = dur; rec.then = then; rec.actName = name;
+    rec.a.play(name, opts).then(res => { if(rec.state === 'act' && rec.actName === name && !posture){ rec.state = 'idle'; rec.t = this.r(.5, 3) * (.5 + rec.tr.lazy); const f = rec.then; rec.then = null; f?.(res); } });
+  }
+  #walk(rec, x, z, speed, after){ const R = Math.hypot(x, z); if(R > FIELD_R){ x *= FIELD_R / R; z *= FIELD_R / R; }
+    const a = rec.a.position; for(let k = 1; k <= 12; k++){ const t = k / 12, px = a.x + (x - a.x) * t, pz = a.z + (z - a.z) * t; if(this.inWater(px, pz)){ const u = Math.max(0, (k - 2) / 12); x = a.x + (x - a.x) * u; z = a.z + (z - a.z) * u; break; } }   // stop at the water's edge, never wade through
+    rec.state = 'walk'; rec.after = after; rec.t = 16; rec.a.lookAt(null); rec.a.moveTo(new V(x, this.ground(x, z), z), {speed}); }
   #away(a){ return Math.atan2(a.position.x, a.position.z); }             // heading that points directly away from the person
   #flockReact(src){
     for(const o of this.recs){ if(o === src || o.kind !== 'crow' || o.state === 'fly' || o.a.state.mode !== 'ground') continue;
@@ -106,7 +120,10 @@ export class Fauna {
   }
 
   #think(rec, dt){
-    const {a, kind, tr} = rec, dp = this.#dist(a); rec.t -= dt;
+    const {a, kind, tr} = rec, dp = this.#dist(a); rec.t -= dt; rec.thirst -= dt;
+    if(rec.state === 'act' && rec.t <= 0){ a.stopAction(); rec.state = 'idle'; rec.t = this.r(.5, 2.5); const f = rec.then; rec.then = null; f?.('done'); return; }       // action finished (or a posture ran its time): stand up, carry on
+    if(rec.state === 'walk' && rec.t <= 0){ a.stop(); rec.state = 'idle'; rec.t = this.r(.5, 2); rec.after = null; return; }                                        // never get stuck walking
+    if(rec.thirst <= 0 && rec.state === 'idle' && rec.t <= 0 && (kind !== 'crow' || a.state.mode === 'ground') && !(kind === 'rabbit' && dp < tr.alert)){ this.#drink(rec); return; }   // thirst drives the trip, not a coin flip
     if(kind === 'rabbit') return this.#rabbit(rec, dp);
     if(kind === 'cat') return this.#cat(rec, dp);
     if(kind === 'dog') return this.#dog(rec, dp);
@@ -116,9 +133,10 @@ export class Fauna {
     const {a, tr} = rec, flee = () => { rec.state = 'flee'; rec.t = this.r(1.2, 2.4); a.lookAt(null); a.move({speed: this.#gear(a, 'bound', 'halfbound'), heading: this.#away(a) + (this.rnd() - .5) * .8}); };
     if(rec.state === 'flee'){ if(this.#dist(a) > FIELD_R) { a.move({speed: this.#gear(a, 'halfbound'), heading: Math.atan2(-a.position.x, -a.position.z)}); } if(rec.t <= 0){ a.stop(); rec.state = 'idle'; rec.t = this.r(3, 6); this.#act(rec, 'sit'); } return; }
     if(dp < tr.flee && rec.state !== 'flee'){ flee(); return; }
-    if(dp < tr.alert && rec.state !== 'alert' && rec.state !== 'act' || (rec.state === 'alert' && rec.t > 0 && dp < tr.alert)){
-      if(rec.state !== 'alert'){ a.stop(); a.lookAt(this.person); rec.state = 'alert'; rec.t = this.r(2.5, 4.5); a.play('periscope'); } return; }
-    if(rec.state === 'alert'){ if(dp < tr.alert * tr.bold) flee(); else { a.lookAt(null); rec.state = 'idle'; rec.t = this.r(1, 3); } return; }
+    const al = tr.alert * tr.habit;                                              // a rabbit gets used to a motionless person
+    if(dp < al && rec.state !== 'alert' && rec.state !== 'act' || (rec.state === 'alert' && rec.t > 0 && dp < al)){
+      if(rec.state !== 'alert'){ a.stop(); a.lookAt(this.person); rec.state = 'alert'; rec.t = this.r(2.5, 4.5); tr.habit = Math.max(.55, tr.habit * .88); a.play('periscope'); } return; }
+    if(rec.state === 'alert'){ a.lookAt(null); if(dp < tr.flee * tr.bold) flee(); else { const [x, z] = this.ringPoint(Math.max(al + .7, 2.7), tr.range + 1.4); this.#walk(rec, x, z, this.#gear(a, 'shuffle', 'halfbound')); } return; }
     if(rec.state !== 'idle' || rec.t > 0) return;
     const go = () => { const [x, z] = this.ringPoint(Math.max(tr.alert + .3, 2.2), tr.range + 1.2); this.#walk(rec, x, z, this.#gear(a, 'shuffle', 'halfbound')); };
     switch(this.pick([['wander', 3], ['eat', 3 - tr.lazy * 1], ['groom', 1.5], ['look', 1.2], ['sit', 1.2 + tr.lazy], ['drink', .9]])){
@@ -161,21 +179,22 @@ export class Fauna {
     if(mode === 'ground' && dp < tr.flee * 1.6 + .2 && rec.state !== 'fly'){ this.#fly(rec, true); return; }            // too close: up and away
     if(rec.state !== 'idle' || rec.t > 0) return;
     if(rec.flyNext){ rec.flyNext = false; this.#fly(rec); return; }
-    if(mode === 'perch'){ this.pick([['look', 3], ['fly', 1.4]]) === 'look' ? (a.lookAt(new V(this.r(-4, 4), this.r(.3, 2), this.r(-4, 4))), rec.t = this.r(2, 6)) : this.#fly(rec); return; }
-    switch(this.pick([['hop', 3], ['eat', 3], ['look', 2], ['fly', .7 + tr.curious], ['drink', 1]])){
-      case 'drink': this.#drink(rec); break;
+    if(mode === 'perch'){ const pk = this.pick([['look', 3], ['fly', 1.2], ['cross', .9]]); if(pk === 'cross'){ this.#fly(rec, false, true); return; } pk === 'look' ? (a.lookAt(new V(this.r(-4, 4), this.r(.3, 2), this.r(-4, 4))), rec.t = this.r(2, 6)) : this.#fly(rec); return; }
+    switch(this.pick([['hop', 3], ['eat', 3], ['look', 2], ['fly', .7 + tr.curious], ['cross', .6]])){
+      case 'cross': this.#fly(rec, false, true); break;
       case 'hop': { const [x, z] = this.ringPoint(1.8, FIELD_R - .3); this.#walk(rec, x, z, this.#gear(a, 'walk', 'hop')); break; }
       case 'eat': this.#act(rec, 'eat', {duration: this.r(3, 7)}); break;
       case 'look': a.lookAt(new V(this.r(-4, 4), this.r(.3, 1.2), this.r(-4, 4))); rec.t = this.r(1.5, 4); break;
       default: this.#fly(rec); }
   }
-  #fly(rec, scared = false){
+  #fly(rec, scared = false, cross = false){
     const {a} = rec; a.lookAt(null); rec.state = 'fly';
     const here = a.position, free = this.perches.filter(p => !this.recs.some(o => o !== rec && o.kind === 'crow' && o.a.position.distanceTo(p) < .5));
     const useP = free.length && (scared ? true : this.rnd() < .6), land = () => { const [x, z] = this.ringPoint(1.8, FIELD_R - .3); return new V(x, this.ground(x, z), z); };
-    const dest = useP ? (scared ? free.reduce((b, p) => p.length() > b.length() ? p : b, free[0]) : free[(this.rnd() * free.length) | 0]) : land();
+    const bankPerches = this.perches.filter(p => this.shoreSpots.some(([sx, sz]) => Math.hypot(sx - p.x, sz - p.z) < .6) && !this.recs.some(o => o !== rec && o.kind === 'crow' && o.a.position.distanceTo(p) < .5));
+    const dest = cross && bankPerches.length ? bankPerches.reduce((b, p) => p.distanceTo(here) > b.distanceTo(here) ? p : b, bankPerches[0]) : useP ? (scared ? free.reduce((b, p) => p.length() > b.length() ? p : b, free[0]) : free[(this.rnd() * free.length) | 0]) : land();
     const done = () => { if(rec.state === 'fly'){ rec.t = this.r(4, 10); } };
-    (useP ? a.play('perch', {target: dest.clone()}) : a.play('land', {target: dest})).then(done);
+    ((useP || (cross && bankPerches.length)) ? a.play('perch', {target: dest.clone()}) : a.play('land', {target: dest})).then(done);
   }
 
   update(dt, camera){

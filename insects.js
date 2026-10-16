@@ -70,6 +70,8 @@ export class Insects {
     // flower patches to hover around (taken from the meadow's flower instances); fall back to rings around the model
     const spots = []; meadow.group.children.forEach(m => { if(m.userData.kind === 'flowers' && m.geometry.attributes.aOff.count > 3){ const a = m.geometry.attributes.aOff; spots.push([a.getX(0), a.getY(0), a.getZ(0)], [a.getX(3), a.getY(3), a.getZ(3)]); } });
     const spot = () => spots.length ? spots[(rnd() * spots.length) | 0] : [center.x + (rnd() - .5) * span * 3, center.y, center.z + (rnd() - .5) * span * 3];
+    const water = meadow.spots?.length ? meadow.spots : null;                                    // reed / cattail clumps at the pond: dragonflies and fireflies belong there
+    const wspot = () => water ? water[(rnd() * water.length) | 0] : spot();
     const inst = (n, geo, mat, fill) => { const g = new THREE.InstancedBufferGeometry(); g.index = geo.index; for(const k in geo.attributes) g.setAttribute(k, geo.attributes[k]);
       const off = new Float32Array(n * 3), prm = new Float32Array(n * 4), col = new Float32Array(n * 3);
       for(let i = 0; i < n; i++) fill(i, off, prm, col);
@@ -89,11 +91,11 @@ export class Insects {
       for(const [z, l] of [[.35, 1.1], [.2, .95]]){ const w = add([[0, 0, z], [l, 0, z + .1], [l * .9, 0, z - .15], [-l, 0, z + .1], [-l * .9, 0, z - .15]], 1); di.push(w, w + 1, w + 2, w, w + 3, w + 4); } }
     const dg = new THREE.BufferGeometry(); dg.setAttribute('position', new THREE.Float32BufferAttribute(dp, 3)); dg.setAttribute('aPart', new THREE.Float32BufferAttribute(dpart, 1)); dg.setIndex(di);
     this.dragonflies = inst(3, dg, new THREE.ShaderMaterial({vertexShader: DRAGON_VS, fragmentShader: DRAGON_FS, uniforms: this.U, side: THREE.DoubleSide, transparent: true}), (i, off, prm, col) => {
-      const s = spot(); off.set([s[0], s[1] + span * .1, s[2]], i * 3); prm.set([span * (.7 + rnd() * .8), .5 + rnd() * .4, rnd() * 6.28, span * .09], i * 4); col.set([[.1, .35, .75], [.1, .6, .4], [.7, .15, .1]][i % 3], i * 3); });
+      const s = wspot(); off.set([s[0], s[1] + span * .1, s[2]], i * 3); prm.set([span * (.35 + rnd() * .35), .5 + rnd() * .4, rnd() * 6.28, span * .09], i * 4); col.set([[.1, .35, .75], [.1, .6, .4], [.7, .15, .1]][i % 3], i * 3); });
 
     const fg = new THREE.BufferGeometry(); fg.setAttribute('position', new THREE.Float32BufferAttribute([-.5, -.5, 0, .5, -.5, 0, -.5, .5, 0, .5, .5, 0], 3)); fg.setIndex([0, 1, 2, 1, 3, 2]);
     this.fireflies = inst(26, fg, new THREE.ShaderMaterial({vertexShader: FLY_VS, fragmentShader: FLY_FS, uniforms: this.U, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending}), (i, off, prm, col) => {
-      const a = rnd() * 6.28, r = span * (.6 + rnd() * 2); off.set([center.x + Math.sin(a) * r, center.y, center.z + Math.cos(a) * r], i * 3); prm.set([span * (.2 + rnd() * .4), .3 + rnd() * .5, rnd() * 6.28, 1], i * 4); });
+      const s = rnd() < .65 ? wspot() : spot(), j = span * (rnd() - .5) * .3; off.set([s[0] + j, s[1], s[2] + j], i * 3); prm.set([span * (.2 + rnd() * .4), .3 + rnd() * .5, rnd() * 6.28, 1], i * 4); });
     scene.add(group); this.setLevel(level);
   }
   setLevel(l){ this.level = l; const f = Math.min(1, l / 100); this.butterflies.geometry.instanceCount = Math.floor(this.butterflies.userData.full * f);

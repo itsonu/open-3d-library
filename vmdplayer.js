@@ -22,7 +22,7 @@ function bez(x1, y1, x2, y2, u){                                  // MMD easing 
 }
 
 export async function buildMannequin(vmdBuffer){
-  const mod = await import('three/addons/libs/mmdparser.module.js');
+  const mod = await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/mmdparser.module.js');
   const vmd = new (mod.MMDParser || mod).Parser().parseVmd(vmdBuffer, true);
 
   // ---- skeleton
