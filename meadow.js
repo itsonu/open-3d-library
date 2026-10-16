@@ -121,7 +121,10 @@ const GRASS_VS = /* glsl */`
   transformed = aOff + p; vWorld = transformed; vTipT = t; vLeaf = 0.; vLeafUv = vec2(0.);
   float dry = clamp(uDry + (aMisc.w - .5) * .7, 0., 1.);
   vec3 green = mix(vec3(.13, .29, .06), vec3(.31, .49, .12), aMisc.y), straw = mix(vec3(.47, .41, .19), vec3(.69, .6, .3), aMisc.y);
-  vCol3 = mix(green, straw, dry) * (.7 + .5 * t) * mix(.3, 1., smoothstep(0., .65, t));
+  float aut = smoothstep(1.2, 2., uSeason) * (1. - smoothstep(2.6, 3., uSeason)), win = smoothstep(2.4, 3., uSeason);     // season: 0 spring, 1 summer, 2 autumn, 3 winter
+  vec3 autCol = mix(vec3(.62, .42, .12), vec3(.78, .58, .22), aMisc.y), frost = mix(vec3(.74, .72, .6), vec3(.86, .9, .92), aMisc.y * .5);
+  vec3 col = mix(mix(green, straw, dry), autCol, aut * .85); col = mix(col, frost, win * .8); col *= 1. + (1. - smoothstep(0., 1., uSeason)) * .12 - uWet * .25;
+  vCol3 = col * (.7 + .5 * t) * mix(.3, 1., smoothstep(0., .65, t));
   vegNormal = normalize(vec3(sin(yaw), 0., cos(yaw)) * (.55 * sign(position.x)) + vec3(0., 1., 0.));       // the two halves of the fold catch light differently
 `;
 const PLANT_VS = /* glsl */`                                            // flowers + docks: a bending stem with organs (petals / leaves) attached
@@ -184,7 +187,7 @@ void main(){ vec3 d = normalize(vDir); float h = clamp(d.y, 0., 1.);
   col = mix(col, uHorizon * .96, smoothstep(0., -.18, d.y));
   gl_FragColor = vec4(col, 1.); }`;
 
-export const MEADOW_DEFAULTS = {height: 50, density: 70, wind: 45, speed: 50, gust: 35, dir: 35, dry: 25, rough: 35, sun: 42, flowers: 70, weeds: 70, leaves: 60, fall: 60, clouds: 45};
+export const MEADOW_DEFAULTS = {height: 50, density: 70, wind: 45, speed: 50, gust: 35, dir: 35, dry: 25, rough: 35, sun: 42, flowers: 70, weeds: 70, leaves: 60, fall: 60, clouds: 45, weather: 0, season: 33};
 
 // ---------------------------------------------------------------- geometries (all "unit" sized; per-instance attributes scale them)
 function geo(parts){                                               // parts: [{pos[], idx[], part, attach[]}] -> one indexed BufferGeometry
@@ -233,13 +236,13 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
   const sunDir = new THREE.Vector3(), sunCol = new THREE.Color();
   const U = {
     uTime: {value: 0}, uWind: {value: 0}, uGust: {value: 0}, uSpeed: {value: 1}, uHeight: {value: 1}, uDry: {value: .25}, uWindDir: {value: wind.dir}, uSpan: {value: span},
-    uBodies: {value: Array.from({length: 6}, (_, i) => i ? new THREE.Vector4(0, 0, 1, 0) : new THREE.Vector4(center.x, center.z, span * .2, 1))}, uSunW: {value: sunDir}, uSunCol: {value: new THREE.Vector3()}, uCover: {value: .45},
+    uSeason: {value: 1}, uWet: {value: 0}, uRain: {value: 0}, uCamPos: {value: new THREE.Vector3()}, uBodies: {value: Array.from({length: 6}, (_, i) => i ? new THREE.Vector4(0, 0, 1, 0) : new THREE.Vector4(center.x, center.z, span * .2, 1))}, uSunW: {value: sunDir}, uSunCol: {value: new THREE.Vector3()}, uCover: {value: .45},
   };
   const terrainMat = new THREE.MeshStandardMaterial({vertexColors: true, roughness: 1});
   terrainMat.onBeforeCompile = sh => {                                // ground gets the same moving cloud shadows
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWorldT = (modelMatrix * vec4(transformed, 1.)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT; uniform vec3 uSunW;\n' + NOISE_GLSL + CLOUD_GLSL)
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWorldT; uniform vec3 uSunW; uniform float uSeason, uWet;\n' + NOISE_GLSL + CLOUD_GLSL)
       .replace('#include <color_fragment>', `#include <color_fragment>
       { // ground detail: moss carpets on the damp green parts, soil crumbs, pebbles, leaf litter specks
         vec2 q = vWorldT.xz / uSpan;
@@ -251,6 +254,10 @@ export function createMeadow({scene, span, center, seed = '1', params = {}, wind
         diffuseColor.rgb = mix(diffuseColor.rgb, mossCol, moss * .85);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.34, .32, .28), step(.985, peb) * (1. - moss));
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.2, .12, .05), step(.97, crumb) * .5 * (1. - moss));
+        float win = smoothstep(2.4, 3., uSeason), aut = smoothstep(1.2, 2., uSeason) * (1. - smoothstep(2.6, 3., uSeason));
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.25, .95, .6), aut * .5);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.75, .8, .85), win * (.5 + .4 * fine));                     // frost / thin snow
+        diffuseColor.rgb *= 1. - .32 * uWet;                                                                   // wet ground is darker
       }
       diffuseColor.rgb *= 1. - .5 * cloudDensity(vWorldT.xz + uSunW.xz / max(uSunW.y, .1) * uSpan * ${CLOUD_Y}.);`);
   };
@@ -341,6 +348,18 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
     g.setAttribute('aOff', new THREE.InstancedBufferAttribute(off, 3)); g.setAttribute('aParam', new THREE.InstancedBufferAttribute(prm, 4)); g.setAttribute('aMisc', new THREE.InstancedBufferAttribute(msc, 4)); g.setAttribute('aColor', new THREE.InstancedBufferAttribute(clr, 3));
     g.instanceCount = N; const mesh = new THREE.Mesh(g, fallMat); mesh.frustumCulled = false; mesh.userData = {full: N, kind: 'fall'}; group.add(mesh); chunks.push(mesh); }
 
+  // ---- rain: streaks in a box around the camera, only drawn while it rains
+  const RN = 3000, rg = new THREE.InstancedBufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute([-.5, 0, 0, .5, 0, 0, -.5, 1, 0, .5, 1, 0], 3)); rg.setIndex([0, 1, 2, 1, 3, 2]);
+  { const o = new Float32Array(RN * 3), r = mulberry(hashStr(seed + 'rain')); for(let i = 0; i < RN; i++) o.set([r(), r(), r()], i * 3); rg.setAttribute('aSeed', new THREE.InstancedBufferAttribute(o, 3)); rg.instanceCount = RN; }
+  const rain = new THREE.Mesh(rg, new THREE.ShaderMaterial({uniforms: {uTime: U.uTime, uSpan: U.uSpan, uRain: U.uRain, uCam: U.uCamPos, uWindDir: U.uWindDir}, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    vertexShader: `attribute vec3 aSeed; uniform float uTime, uSpan, uRain; uniform vec3 uCam; uniform vec2 uWindDir; varying float vA;
+      void main(){ float B = uSpan * 3.5, H = uSpan * 2.2; vec3 base = vec3((aSeed.x - .5) * B, 0., (aSeed.z - .5) * B);
+        float y = fract(aSeed.y - uTime * (1.2 + aSeed.x * .5)) * H; vec3 wp = uCam + base; wp.xz += uWindDir * y * .25; wp.y = uCam.y - H * .4 + y;
+        vec4 mv = viewMatrix * vec4(wp, 1.); vec3 up = (viewMatrix * vec4(uWindDir.x * .25, 1., uWindDir.y * .25, 0.)).xyz; mv.xyz += vec3(position.x * uSpan * .0035, 0., 0.) + normalize(up) * position.y * uSpan * .075;
+        vA = uRain * (.12 + aSeed.x * .25) * (1. - smoothstep(B * .3, B * .5, length(base.xz))); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `varying float vA; void main(){ gl_FragColor = vec4(.78, .85, .95, vA); }`}));
+  rain.frustumCulled = false; rain.visible = false; group.add(rain);
+
   // ---- sky dome (follows the camera) with clouds
   const skyU = {uSun: {value: sunDir}, uSunCol: {value: U.uSunCol.value}, uHorizon: {value: new THREE.Vector3()}, uZenith: {value: new THREE.Vector3()}, uCam: {value: new THREE.Vector3()}, uCloudCol: {value: new THREE.Vector3(.97, .97, .98)},
     uTime: U.uTime, uCover: U.uCover, uSpan: U.uSpan, uSpeed: U.uSpeed, uWindDir: U.uWindDir};
@@ -350,19 +369,20 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
 
   const api = {group, wind, sunDir, sunColor: sunCol, skyColor: new THREE.Color(), groundColor: new THREE.Color(.33, .25, .15), ground: height, params: P,
     setParams(p){
-      Object.assign(P, p); wind.strength = P.wind / 100 * 1.5; wind.speed = .4 + P.speed / 50; wind.gust = P.gust / 100; wind.setAngle(P.dir); U.uCover.value = P.clouds / 100 * .75;
+      Object.assign(P, p); const w = P.weather / 100; wind.strength = P.wind / 100 * 1.5 * (1 + w * .9); U.uSeason.value = P.season / 100 * 3; U.uWet.value = smooth(.3, .7, w); U.uRain.value = smooth(.45, .85, w); rain.visible = U.uRain.value > .02; wind.speed = .4 + P.speed / 50; wind.gust = P.gust / 100; wind.setAngle(P.dir); U.uCover.value = P.clouds / 100 * .75 * (1 - w) + w * .95;
       U.uHeight.value = .35 + P.height / 50 * .65; U.uDry.value = P.dry / 100;
       const e = P.sun * Math.PI / 180, az = -.6, k = smooth(3, 40, P.sun);                  // sun elevation tints light, sky, clouds and fog
       sunDir.set(Math.cos(e) * Math.cos(az), Math.sin(e), Math.cos(e) * Math.sin(az)).normalize();
-      const sc = lerp3([1, .6, .34], [1, .96, .88], k), hz = lerp3([.95, .66, .5], [.76, .86, .95], k), zn = lerp3([.22, .24, .42], [.2, .43, .82], k);
+      const grey = (c, g) => c.map(v => v + (.58 + (c[0] + c[1] + c[2]) / 3 * .3 - v) * g), sc = lerp3([1, .6, .34], [1, .96, .88], k).map(v => v * (1 - .55 * w)), hz = grey(lerp3([.95, .66, .5], [.76, .86, .95], k), w * .75), zn = grey(lerp3([.22, .24, .42], [.2, .43, .82], k), w * .8);
       sunCol.setRGB(sc[0], sc[1], sc[2]); U.uSunCol.value.set(...sc); skyU.uHorizon.value.set(...hz); skyU.uZenith.value.set(...zn); skyU.uCloudCol.value.set(...lerp3([1, .86, .78], [.98, .98, 1], k));
       fogCol.setRGB(hz[0], hz[1], hz[2], THREE.SRGBColorSpace); api.skyColor.setRGB(zn[0], zn[1], zn[2], THREE.SRGBColorSpace);
-      scene.fog = new THREE.Fog(fogCol, span * 1.6, span * 7);
+      scene.fog = new THREE.Fog(fogCol, span * 1.6 * (1 - .6 * w), span * 7 * (1 - .55 * w));
+      U.uSunWeather = w;
     },
     update(t, camera){
-      wind.time = t; U.uTime.value = t; U.uWind.value = wind.strength; U.uGust.value = wind.gust; U.uSpeed.value = wind.speed; skyU.uCam.value.copy(camera.position);
+      wind.time = t; U.uTime.value = t; U.uCamPos.value.copy(camera.position); U.uWind.value = wind.strength; U.uGust.value = wind.gust; U.uSpeed.value = wind.speed; skyU.uCam.value.copy(camera.position);
       dome.position.copy(camera.position); dome.scale.setScalar(camera.far * .45);
-      const dens = P.density / 100, share = {grass: dens, flowers: P.flowers / 100, weeds: P.weeds / 100, leaves: P.leaves / 100, docks: P.weeds / 100, fall: P.fall / 100};
+      const dens = P.density / 100, sn = U.uSeason.value, aut = smooth(1.2, 2, sn) * (1 - smooth(2.6, 3, sn)), win = smooth(2.4, 3, sn), share = {grass: dens * (1 - .25 * win), flowers: P.flowers / 100 * (1 - win) * (1 - .5 * aut), weeds: P.weeds / 100, leaves: P.leaves / 100 * (1 + aut * 2.5), docks: P.weeds / 100, fall: P.fall / 100 * (1 + aut * 2.5) * (1 - win * .8)};
       for(const m of chunks){
         if(m.userData.kind === 'fall'){ m.geometry.instanceCount = Math.floor(m.userData.full * clamp(share.fall, 0, 1)); continue; }
         const d = camera.position.distanceTo(m.userData.c), lod = m.userData.kind === 'grass' ? Math.pow(clamp(1.12 - d / (span * 4.6), .08, 1), 1.4) : clamp(1.2 - d / (span * 2.6), 0, 1);
