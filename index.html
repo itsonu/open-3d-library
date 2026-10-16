@@ -54,6 +54,9 @@ header h1{font-size:15px;margin:0 8px 0 0}
 #ssi{display:none}
 .ly{position:absolute;left:0;top:0;transform-origin:0 0;pointer-events:none;will-change:transform}
 .hz{position:absolute;inset:0;background:#fff;pointer-events:none}
+#wash{position:absolute;inset:0;mix-blend-mode:multiply;pointer-events:none}
+.fish{position:absolute;animation:drift var(--d,9s) ease-in-out infinite alternate;animation-delay:var(--l,0s)}
+@keyframes drift{from{transform:translateX(-70px)}to{transform:translateX(70px)}}
 #paper{position:absolute;inset:0;background:#f1e9d6;mix-blend-mode:multiply;pointer-events:none}
 #fore{position:absolute;inset:0;z-index:2;overflow:hidden;pointer-events:none;mix-blend-mode:multiply;-webkit-mask-image:linear-gradient(to top,#000 0,#000 14%,transparent 50%);mask-image:linear-gradient(to top,#000 0,#000 14%,transparent 50%)}
 #scenePanel{position:absolute;top:10px;right:10px;z-index:4;width:270px;max-height:calc(100% - 20px);overflow:auto;background:#1b1e24f2;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
@@ -121,7 +124,7 @@ h3:first-child{margin-top:0}
 
 <div id="viewer" hidden>
   <div id="center">
-    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="load" hidden></div><canvas id="viz" width="1200" height="120" hidden></canvas>
+    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="wash"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="load" hidden></div><canvas id="viz" width="1200" height="120" hidden></canvas>
       <div id="hint">drag = rotate · right-drag / shift-drag = move · wheel = zoom · click = pick mesh · double-click = focus</div></div>
     <div id="gallery"></div>
     <div id="tr" hidden>
@@ -622,29 +625,68 @@ window.mv = {THREE, frame, controls, camera, get meshes(){ return meshes; }, get
 // ---------- scenery backdrop: shan-shui-inf (MIT, see shanshui-LICENSE.txt) ----------
 // The engine runs in a hidden iframe (it overrides Math.random). Its generated chunks are regrouped by depth into 5 layers that
 // get their own parallax, blur and haze, so the scenery has real distance. The nearest layer is drawn OVER the model's feet.
-const SC_DEF = {on:false, seed:'', zoom:1.3, v:0, parallax:40, mist:55, dblur:2, fore:60, shadow:45, sepia:25, hue:0, bright:100, contrast:100, sat:100, light:100};
+const SC_DEF = {on:false, kind:'mountain', seed:'', zoom:1.3, v:0, parallax:40, mist:55, dblur:2, fore:60, shadow:45, sepia:25, hue:0, bright:100, contrast:100, sat:100, light:100};
 const SC = {...SC_DEF}; try{ Object.assign(SC, JSON.parse(localStorage.getItem('scene') || '{}')); }catch(e){}
 const SLIDERS = [['zoom','Zoom',.8,3,.05],['v','Vertical',-300,300,5],['parallax','Parallax',0,100,1],['mist','Distance haze',0,100,1],['dblur','Depth blur',0,8,.5],
   ['fore','Foreground ink',0,100,1],['shadow','Ground shadow',0,100,1],['sepia','Warmth',0,100,1],['hue','Hue',-180,180,1],['bright','Brightness',40,160,1],
   ['contrast','Contrast',40,160,1],['sat','Colour',0,200,1],['light','Model light',20,220,5]];
 const PRESETS = {Ink:{sat:0,sepia:0,bright:100,contrast:110,hue:0}, Paper:{sat:70,sepia:35,bright:100,contrast:100,hue:0},
   Dusk:{sepia:40,hue:-20,bright:70,contrast:110,sat:90}, Mist:{mist:90,dblur:4,bright:112,contrast:75,sat:60,sepia:15,hue:0}};
-const BANDS = [[-1e9,300],[300,400],[400,500],[500,620],[620,1e9]], PAR = [.08,.22,.42,.7,1.1], BLUR = [1,.7,.4,.15,0], HAZE = [.8,.55,.35,.15], LW = 4200, LH = 700;
-let lyEls = [], hzEls = [];
+const BANDS = [[-1e9,300],[300,400],[400,500],[500,620],[620,1e9]], PAR = [.08,.22,.42,.7,1.1], BLUR = [1,.7,.4,.15,0], HAZE = [.8,.55,.35,.15], LW0 = 4200, LH0 = 700;
+let LW = LW0, LH = LH0, lyEls = [], hzEls = [];
 const sceneSave = () => { try{ localStorage.setItem('scene', JSON.stringify(SC)); }catch(e){} };
 const ssi = $('#ssi'), back = $('#back'), fore = $('#fore');
-function ssiLoad(){ if(!SC.seed) SC.seed = String(Math.floor(Math.random()*1e6)); ssi.src = `shanshui.html?seed=${encodeURIComponent(SC.seed)}`; const sd = $('#seed'); if(sd) sd.value = SC.seed; }
-function layersBuild(){
-  let M; try{ M = ssi.contentWindow.MEM; }catch(e){}
-  if(!M?.chunks?.length) return;
-  const x0 = M.cursx - 600;
-  const svg = ([a, b]) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} 0 ${LW} ${LH}" width="${LW}" height="${LH}">${M.chunks.filter(c => c.y >= a && c.y < b && c.x > x0 - M.cwid && c.x < x0 + LW + M.cwid).map(c => c.canv).join('')}</svg>`;
-  $('#lys').innerHTML = BANDS.slice(0,4).map((b, i) => `<div class="ly" data-i="${i}">${svg(b)}</div><div class="hz" data-i="${i}"></div>`).join('');
-  fore.innerHTML = `<div class="ly" data-i="4">${svg(BANDS[4])}</div>`;
+const KINDS = {mountain:'Mountains', flowers:'Flowers', fish:'Fish'};
+function ssiLoad(){
+  if(!SC.seed) SC.seed = String(Math.floor(Math.random()*1e6));
+  const sd = $('#seed'); if(sd) sd.value = SC.seed;
+  const q = encodeURIComponent(SC.seed);
+  ssi.src = SC.kind === 'flowers' ? `vendor/nonflowers/index.html?seed=${q}` : SC.kind === 'fish' ? `vendor/fishhost.html?${Date.now()}` : `vendor/shanshui.html?seed=${q}`;
+}
+const clearLayers = () => { $('#lys').innerHTML = ''; fore.innerHTML = ''; lyEls = []; hzEls = []; };
+// all kinds fill #lys (far -> near) and #fore (nearest, drawn over the model) with .ly elements that sceneApply() moves for parallax
+function hazeAndLayers(layerHtml, foreHtml){
+  $('#lys').innerHTML = layerHtml.map((h, i) => `<div class="ly" data-i="${i + (layerHtml.length === 1 ? 2 : 0)}" style="width:${LW}px;height:${LH}px">${h}</div><div class="hz" data-i="${Math.min(i, 3)}"></div>`).join('');
+  fore.innerHTML = foreHtml ? `<div class="ly" data-i="4" style="width:${LW}px;height:${LH}px">${foreHtml}</div>` : '';
   lyEls = [...document.querySelectorAll('#back .ly, #fore .ly')]; hzEls = [...document.querySelectorAll('#back .hz')];
   sceneApply();
 }
-ssi.onload = () => setTimeout(layersBuild, 50);
+function flowersBuild(tries = 0){                       // nonflowers paints one plant onto a canvas; hang that painting behind the model
+  let w, cv; try{ w = ssi.contentWindow; cv = w.CTX?.canvas; }catch(e){}
+  if(!cv || w.document.getElementById('loader').style.display !== 'none'){ if(tries < 120) setTimeout(() => flowersBuild(tries + 1), 250); return; }
+  LW = cv.width; LH = cv.height;
+  hazeAndLayers([`<img src="${cv.toDataURL('image/png')}" width="${LW}" height="${LH}" style="filter:drop-shadow(0 6px 14px rgba(40,30,10,.35))">`], '');
+  hzEls.forEach(h => h.style.display = 'none');
+}
+function fishBuild(){                                    // fishdraw returns polylines; scatter fish over 5 depths, near ones big and in front
+  const w = ssi.contentWindow; LW = LW0; LH = LH0;
+  const rnd = (() => { let x = [...SC.seed].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) || 1; return () => (x = (x * 1664525 + 1013904223) >>> 0) / 4294967296; })();
+  const per = [3, 4, 4, 3, 3], size = [90, 150, 230, 340, 520], bands = per.map(() => '');
+  per.forEach((n, i) => { for(let k = 0; k < n; k++){
+    let pl; try{ pl = w.eval(`jsr = str_to_seed(${JSON.stringify(SC.seed + '-' + i + '-' + k)}); fish(generate_params())`); }catch(e){ continue; }
+    const pts = pl.flat(), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), x0 = Math.min(...xs), y0 = Math.min(...ys), bw = Math.max(...xs) - x0, bh = Math.max(...ys) - y0;
+    if(!(bw > 0 && bh > 0)) continue;
+    const wpx = size[i] * (.8 + rnd() * .5), hpx = wpx * bh / bw, u = bw / wpx;
+    const d = pl.map(l => 'M' + l.map(p => `${((p[0] - x0) / u).toFixed(1)} ${((p[1] - y0) / u).toFixed(1)}`).join('L')).join('');
+    const x = rnd() * (LW - wpx), y = 120 + rnd() * (LH - 120 - hpx), flip = rnd() < .5 ? -1 : 1;
+    bands[i] += `<svg class="fish" width="${wpx}" height="${hpx}" viewBox="0 0 ${wpx} ${hpx}" style="left:${x}px;top:${y}px;--d:${6 + rnd() * 9}s;--l:-${rnd() * 9}s"><path d="${d}" transform="${flip < 0 ? `translate(${wpx} 0) scale(-1 1)` : ''}" fill="none" stroke="rgba(60,60,60,.85)" stroke-width="${i < 2 ? 1 : 1.3}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  } });
+  hazeAndLayers(bands.slice(0, 4), bands[4]);
+}
+function ssiLoaded(){
+  if(SC.kind === 'flowers') flowersBuild();
+  else if(SC.kind === 'fish') fishBuild();
+  else setTimeout(layersBuild, 50);
+}
+function layersBuild(){
+  let M; try{ M = ssi.contentWindow.MEM; }catch(e){}
+  if(!M?.chunks?.length) return;
+  LW = LW0; LH = LH0;
+  const x0 = M.cursx - 600;
+  const svg = ([a, b]) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} 0 ${LW} ${LH}" width="${LW}" height="${LH}">${M.chunks.filter(c => c.y >= a && c.y < b && c.x > x0 - M.cwid && c.x < x0 + LW + M.cwid).map(c => c.canv).join('')}</svg>`;
+  hazeAndLayers(BANDS.slice(0, 4).map(svg), svg(BANDS[4]));
+}
+ssi.onload = ssiLoaded;
 function groundApply(){
   if(!ground) return;
   const on = SC.on && SC.shadow > 0;
@@ -660,6 +702,7 @@ function sceneApply(){
   if(grid) grid.visible = $('#bGrid').classList.contains('on') && !SC.on;   // a grid on top of a painting looks wrong
   if(!SC.on) return;
   const look = `sepia(${SC.sepia}%) hue-rotate(${SC.hue}deg) brightness(${SC.bright}%) contrast(${SC.contrast}%) saturate(${SC.sat}%)`;
+  $('#wash').style.background = SC.kind === 'fish' ? 'linear-gradient(#e4f0ee, #b9d3d6 60%, #8fb3bd)' : 'none';
   back.style.filter = look; fore.style.filter = look; fore.style.opacity = SC.fore/100;
   const w = stage.clientWidth, h = stage.clientHeight, sc = h/LH*SC.zoom, az = controls.getAzimuthalAngle(), pol = controls.getPolarAngle();
   for(const el of lyEls){
@@ -673,13 +716,14 @@ controls.addEventListener('change', () => SC.on && sceneApply());
 new ResizeObserver(() => SC.on && sceneApply()).observe(stage);
 function scenePanel(){
   $('#scenePanel').innerHTML = `<label><input type="checkbox" id="scOn" ${SC.on?'checked':''}> <b style="color:var(--fg)">Shan-shui scenery</b></label>
+    <div class="r">${Object.entries(KINDS).map(([k, l]) => `<button data-kind="${k}" class="${SC.kind === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="r"><input id="seed" value="${SC.seed}" title="seed: same seed = same landscape"><button id="scGo">Go</button><button id="scDice" title="random landscape">🎲</button></div>
     <div class="r"><button id="scL">◀ scroll</button><button id="scR">scroll ▶</button></div>
     <h4>Look</h4><div class="r">${Object.keys(PRESETS).map(k => `<button data-p="${k}">${k}</button>`).join('')}<button id="scReset">Reset</button></div>
     ${SLIDERS.map(([k,l,a,b,st]) => `<label><span>${l}</span><input type="range" data-k="${k}" min="${a}" max="${b}" step="${st}" value="${SC[k]}"></label>`).join('')}
     <div style="color:var(--dim);font-size:11px;margin-top:6px">Five depth layers with parallax, haze and blur; the nearest ink drifts in front of the model; sun shadow + ink wash ground it. "Shot" saves the model on a transparent background.</div>`;
 }
-const scEnable = on => { SC.on = on; if(on && !ssi.src.includes('shanshui')) ssiLoad(); sceneSave(); sceneApply(); };
+const scEnable = on => { SC.on = on; if(on && !ssi.getAttribute('src')) ssiLoad(); sceneSave(); sceneApply(); };
 $('#bScene').onclick = () => { const p = $('#scenePanel'); p.hidden = !p.hidden; if(!p.hidden) scenePanel(); sceneApply(); };
 $('#scenePanel').addEventListener('input', e => {
   if(e.target.id === 'scOn') return scEnable(e.target.checked);
@@ -691,6 +735,7 @@ $('#scenePanel').addEventListener('click', e => {
   if(t.id === 'scGo'){ SC.seed = $('#seed').value || SC.seed; SC.on = true; ssiLoad(); sceneSave(); }
   else if(t.id === 'scDice'){ SC.seed = String(Math.floor(Math.random()*1e6)); SC.on = true; ssiLoad(); sceneSave(); }
   else if(t.id === 'scL' || t.id === 'scR'){ try{ ssi.contentWindow.xcroll(t.id === 'scL' ? -300 : 300); layersBuild(); }catch(err){} }
+  else if(t.dataset.kind){ SC.kind = t.dataset.kind; SC.on = true; clearLayers(); ssiLoad(); sceneSave(); scenePanel(); }
   else if(t.dataset.p){ Object.assign(SC, PRESETS[t.dataset.p]); scEnable(true); scenePanel(); }
   else if(t.id === 'scReset'){ const keep = {on:SC.on, seed:SC.seed}; Object.assign(SC, SC_DEF, keep); sceneSave(); scenePanel(); }
   sceneApply();

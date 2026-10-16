@@ -6,5 +6,5 @@
 !/README.md
 !/adult.json
 !/fixes.json
-!/shanshui.html
-!/shanshui-LICENSE.txt
+!/vendor/
+!/vendor/**
