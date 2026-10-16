@@ -1,0 +1,8 @@
+# track only the library code; assets and caches stay out of git
+/*
+!/.gitignore
+!/index.html
+!/serve.py
+!/README.md
+!/adult.json
+!/fixes.json

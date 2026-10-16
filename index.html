@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Motion Library</title>
+<style>
+:root{--bg:#14161a;--panel:#1b1e24;--line:#2a2e37;--fg:#e6e8ec;--dim:#8b93a1;--acc:#6ea8ff;--cw:200px;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,sans-serif}
+body{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+input,select,button{font:inherit;color:var(--fg);background:#242831;border:1px solid var(--line);border-radius:6px;padding:5px 9px}
+button{cursor:pointer}button:hover:not(:disabled){border-color:var(--acc)}button.on{background:var(--acc);color:#0b1220;border-color:var(--acc)}button:disabled{opacity:.35;cursor:default}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:15px;margin:0 8px 0 0}
+.sp{margin-left:auto}
+#status{color:var(--dim);font-size:11px}
+.chip.on{font-weight:600}
+#title{font-weight:600;font-size:14px;margin:0 auto 0 4px}
+/* library */
+#lib{flex:1;overflow:auto;padding:14px 16px 40px}
+#lib h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin:18px 0 10px}
+#lib h2:first-child{margin-top:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cw),1fr));gap:12px}
+.card{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .12s,transform .12s}
+.card:hover{border-color:var(--acc);transform:translateY(-2px)}
+.th{aspect-ratio:3/4;background:#0f1115;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.th::before{content:'';position:absolute;inset:-12px;background:var(--b,none) center/cover;filter:blur(16px) brightness(.8)}
+.th.q::before{background:linear-gradient(110deg,#171a20 30%,#222733 50%,#171a20 70%) 0 0/200% 100%;filter:none;animation:sh 1.4s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+.th img{position:relative;width:100%;height:100%;object-fit:cover;object-position:center top;display:block;opacity:0;transition:opacity .35s}
+.th img.ld{opacity:1}
+.th .ph{color:#444b59;font-size:28px;font-weight:700;letter-spacing:.05em}
+.th .gen{position:absolute;inset:auto 0 0 0;text-align:center;font-size:10px;color:var(--dim);padding:3px;background:#0009}
+.meta{padding:7px 10px;display:flex;flex-direction:column;gap:1px}
+.meta b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta span{color:var(--dim);font-size:11px;text-transform:uppercase}
+.card.adult .th img,.card.adult .th::before{filter:blur(30px) brightness(.7);transform:scale(1.2)}
+.badge{position:absolute;top:8px;left:8px;z-index:2;background:#c0392bcc;color:#fff;font-size:11px;font-weight:700;padding:2px 7px;border-radius:10px}
+#gate{position:fixed;inset:0;z-index:20;background:#000c;display:none;align-items:center;justify-content:center}
+#gate div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px 28px;max-width:380px;text-align:center}
+#gate h2{margin:0 0 8px;font-size:18px}#gate p{color:var(--dim);margin:0 0 18px}
+#gate button{margin:0 5px;padding:8px 18px}
+/* viewer */
+#viewer{flex:1;display:grid;grid-template-columns:1fr 290px;min-height:0}
+#viewer.noinsp{grid-template-columns:1fr 0}
+#viewer.noinsp #insp{display:none}
+#center{display:flex;flex-direction:column;min-width:0;min-height:0}
+#stage{position:relative;flex:1;min-height:0}
+#stage canvas.gl{display:block;width:100%;height:100%}
+#load::before{content:'';position:absolute;inset:-20px;background:var(--b,none) center/cover;filter:blur(22px) brightness(.55);z-index:-1}
+#load{z-index:1}
+#msg,#load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--dim);padding:24px;pointer-events:none;white-space:pre-line}
+#hint{position:absolute;left:10px;bottom:8px;color:var(--dim);font-size:11px;pointer-events:none}
+#viz{position:absolute;left:0;right:0;bottom:0;width:100%;height:120px;pointer-events:none;opacity:.7}
+#gallery{flex:1;overflow:auto;padding:12px;display:none;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;align-content:start}
+#gallery figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:zoom-in}
+#gallery img{width:100%;aspect-ratio:3/4;object-fit:cover;object-position:top;background:#0e1013;display:block}
+#gallery figcaption{padding:5px 8px;color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#tr{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line);background:var(--panel)}
+#seek{flex:1;min-width:140px;accent-color:var(--acc)}
+#time{font-variant-numeric:tabular-nums;color:var(--dim);min-width:92px;text-align:center}
+#vol{width:80px;accent-color:var(--acc)}
+#insp{background:var(--panel);border-left:1px solid var(--line);padding:12px;overflow:auto}
+#lb{position:fixed;inset:0;background:#000d;display:none;z-index:9;overflow:hidden;cursor:grab}
+#lb img{position:absolute;max-width:92vw;max-height:92vh;transform-origin:0 0;user-select:none;-webkit-user-drag:none}
+h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:14px 0 6px}
+h3:first-child{margin-top:0}
+.row{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+.row .k{color:var(--dim)}
+.mesh{display:flex;gap:6px;align-items:center;padding:2px 4px;border-radius:4px;cursor:pointer}
+.mesh:hover{background:#222630}.mesh.sel{background:#232a38}
+.mesh span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.files a{color:var(--acc);text-decoration:none;overflow-wrap:anywhere}
+.files div{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+.files small{color:var(--dim);flex:none}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<header id="hLib">
+  <h1>Motion Library</h1>
+  <span id="chips"></span>
+  <input id="q" placeholder="Search…  ( / )" style="width:200px">
+  <label class="sp" style="color:var(--dim)">size <input id="cw" type="range" min="140" max="360" value="200" style="padding:0;vertical-align:middle"></label>
+  <span id="status"></span>
+</header>
+<header id="hView" hidden>
+  <button id="bBack" title="Esc">← Library</button>
+  <button id="bPrev" title="[">‹</button><button id="bNext" title="]">›</button>
+  <span id="title"></span>
+  <select id="fsel" hidden></select>
+  <button id="bReset" title="Reset view (R)">Reset</button>
+  <button id="bIn">＋</button><button id="bOut">－</button>
+  <button id="bRot" title="Auto-rotate">Rotate</button>
+  <button id="bWire" title="Wireframe (W)">Wire</button>
+  <button id="bClay" title="Plain clay material (C)">Clay</button>
+  <button id="bGrid" class="on" title="Grid (G)">Grid</button>
+  <button id="bBox" title="Bounding box (B)">Box</button>
+  <select id="bg"><option value="#14161a">Dark</option><option value="#4a4f5a">Grey</option><option value="#e9ebef">Light</option></select>
+  <button id="bShot" title="Save PNG">Shot</button>
+  <button id="bInsp" class="on" title="Inspector (I)">Inspect</button>
+</header>
+
+<div id="lib"></div>
+
+<div id="viewer" hidden>
+  <div id="center">
+    <div id="stage"><div id="msg"></div><div id="load" hidden></div><canvas id="viz" width="1200" height="120" hidden></canvas>
+      <div id="hint">drag = rotate · right-drag / shift-drag = move · wheel = zoom · click = pick mesh · double-click = focus</div></div>
+    <div id="gallery"></div>
+    <div id="tr" hidden>
+      <button id="tPlay" title="Space">▶</button><button id="tStop" title="Rewind">⏮</button>
+      <input id="seek" type="range" min="0" max="1000" value="0"><span id="time">0:00 / 0:00</span>
+      <select id="tSpeed" title="Speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>1.5</option><option>2</option></select>
+      <button id="tLoop" class="on" title="Loop">Loop</button>
+      <select id="tClip" hidden title="Animation clip"></select>
+      <span id="volw" style="color:var(--dim)">vol <input id="vol" type="range" min="0" max="1" step="0.05" value="0.8"></span>
+    </div>
+  </div>
+  <aside id="insp"><div id="inspBody"></div></aside>
+</div>
+<div id="lb"><img alt=""></div>
+<div id="gate"><div><h2>18+ content</h2><p>This item may contain nudity.<br>Are you 18 or older?</p><button id="gYes" class="on">Yes, I'm 18+</button><button id="gNo">No, go back</button></div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
+import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
+import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
+
+const $ = s => document.querySelector(s);
+const LABEL = {character:'Characters', outfit:'Outfits & hair', pose:'Poses', reference:'2D references', motion:'Motion'};
+const VIEW = ['glb','gltf','fbx','obj','pmx','pmd'], IMG = ['png','jpg','jpeg','webp','gif'], AUD = ['wav','mp3','ogg','m4a'];
+const ext = n => n.split('.').pop().toLowerCase();
+const url = (it, n) => `${encodeURIComponent(it.id)}/${encodeURIComponent(n)}`;
+const mb = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.max(1,Math.round(b/1e3))+' KB';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fmt = t => `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
+const pickModel = it => it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b) => VIEW.indexOf(ext(a.n)) - VIEW.indexOf(ext(b.n)))[0];
+
+// Some FBX exports have broken blend-shape data that crashes three's stock loader; retry with morph targets skipped.
+let fbxPatched;
+const patchedFBX = () => fbxPatched ??= (async () => {
+  const base = 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/FBXLoader.js';
+  const src = (await (await fetch(base)).text()).replace("'../libs/fflate.module.js'", "'three/addons/libs/fflate.module.js'")
+    .replace("'../curves/NURBSCurve.js'", "'three/addons/curves/NURBSCurve.js'").replace('const rawMorphTargets = [];', 'const rawMorphTargets = []; if(true) return rawMorphTargets;');
+  return (await import(URL.createObjectURL(new Blob([src], {type:'text/javascript'})))).FBXLoader;
+})();
+
+// ---------- model loading (shared by viewer and thumbnail generator) ----------
+function fetchModel(it, file, onProg){
+  return new Promise((resolve, rej) => {
+    let obj = null, idle = false, fired = false;      // resolve once the model AND its textures have loaded
+    const fin = () => { if(obj && idle && !fired){ fired = true; fixTextures(obj, it).then(() => resolve(obj)); } };
+    const res = o => { obj = o; fin(); setTimeout(() => { idle = true; fin(); }, 20000); };   // 20 s safety net
+    const norm = n => n.toLowerCase().replace(/[\s_]+/g,'_');
+    const names = new Map(it.files.map(f => [norm(f.n), f.n]));
+    const mgr = new THREE.LoadingManager(() => { idle = true; fin(); });
+    mgr.setURLModifier(u => {
+      if(/^(blob|data):/.test(u)) return u;
+      const base = decodeURIComponent(u.split('?')[0]).split(/[\\/]/).pop(), k = norm(base);
+      if(names.has(k)) return url(it, names.get(k));
+      return u;
+    });
+    const e = ext(file.n), u = url(it, file.n);
+    if(e==='glb'||e==='gltf') new GLTFLoader(mgr).load(u, g => { g.scene.animations = g.animations; res(g.scene); }, onProg, rej);
+    else if(e==='fbx') new FBXLoader(mgr).load(u, res, onProg, err => err instanceof TypeError ? patchedFBX().then(L => new L(mgr).load(u, res, onProg, rej), rej) : rej(err));
+    else if(e==='pmx'||e==='pmd') import('three/addons/loaders/MMDLoader.js').then(({MMDLoader}) => {
+      const vmds = it.files.filter(f => ext(f.n)==='vmd').map(f => url(it, f.n));
+      const l = new MMDLoader(mgr);
+      if(vmds.length) l.loadWithAnimation(u, vmds, m => { m.mesh.animations = [m.animation]; res(m.mesh); }, onProg, rej);
+      else l.load(u, res, onProg, rej);
+    }, rej);
+    else {
+      const mtl = names.get(norm(file.n.replace(/\.obj$/i,'.mtl')));
+      const go = mats => { const l = new OBJLoader(mgr); if(mats) l.setMaterials(mats); l.load(u, res, onProg, rej); };
+      if(mtl) new MTLLoader(mgr).load(url(it, mtl), m => { m.preload(); go(m); }, undefined, () => go()); else go();
+    }
+  });
+}
+// FBX files that reference textures by a name that doesn't exist (e.g. "tmp123.fbm/image_0_png") leave maps empty, which renders
+// black. If the model has a single material, attach the folder's colour/normal image by ROLE; otherwise drop the dead map.
+async function fixTextures(obj, it){
+  const imgs = it.files.filter(f => IMG.includes(ext(f.n)));
+  const color = imgs.find(f => /colou?r|diffuse|albedo|base/i.test(f.n)) || (imgs.length===1 ? imgs[0] : null);
+  const normal = imgs.find(f => /normal|nrm/i.test(f.n));
+  const mats = new Set(); obj.traverse(o => o.isMesh && [].concat(o.material).forEach(m => mats.add(m)));
+  const single = mats.size === 1, jobs = [];
+  for(const m of mats) for(const k of ['map','normalMap','roughnessMap','metalnessMap','aoMap','emissiveMap','alphaMap','specularMap','bumpMap']){
+    if(!m[k] || m[k].image) continue;
+    const f = single && (k==='map' ? color : k==='normalMap' ? normal : null);
+    if(f) jobs.push(new THREE.TextureLoader().loadAsync(url(it, f.n)).then(t => { if(k==='map') t.colorSpace = THREE.SRGBColorSpace; m[k] = t; m.needsUpdate = true; }, () => { m[k] = null; m.needsUpdate = true; }));
+    else { m[k] = null; m.needsUpdate = true; }
+  }
+  await Promise.all(jobs);
+}
+const fetchModelRetry = async (it, file, onProg) => {   // a dropped connection mid-download shouldn't kill the load
+  for(let i = 0;; i++){
+    try{ return await fetchModel(it, file, onProg); }
+    catch(e){ if(i >= 2 || !/fetch|network|load/i.test(String(e?.message||e))) throw e; await sleep(700*(i+1)); }
+  }
+};
+function disposeObj(o){
+  o.traverse(c => { c.geometry?.dispose(); [].concat(c.material||[]).forEach(m => { Object.values(m).forEach(v => v?.isTexture && v.dispose()); m.dispose(); }); });
+}
+
+// ---------- main 3D stage ----------
+const stage = $('#stage');
+const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.domElement.className = 'gl'; stage.prepend(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#14161a');
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), .04).texture;  // lets metallic materials reflect something
+const camera = new THREE.PerspectiveCamera(40, 1, .1, 1000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.screenSpacePanning = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x555566, 1.6));
+const key = new THREE.DirectionalLight(0xffffff, 2.2); scene.add(key, key.target);
+const clay = new THREE.MeshStandardMaterial({color:0xb8bcc6, roughness:.85});
+const sel = {box:null, mesh:null};
+let model = null, grid = null, bbox = null, home = null, meshes = [], cur = null, token = 0, view = 'lib';
+const flags = {wire:false, clay:false};
+
+function resize(){
+  const w = stage.clientWidth, h = stage.clientHeight; if(!w||!h) return;
+  renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+
+function frame(box, keepAngle){
+  const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+  const d = Math.max(size.x, size.y, size.z) / (2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)) * 1.5 || 1;
+  const dir = keepAngle ? camera.position.clone().sub(controls.target).normalize() : new THREE.Vector3(.5,.25,1).normalize();
+  camera.position.copy(c).addScaledVector(dir, d); controls.target.copy(c);
+  camera.near = d/200; camera.far = d*200; camera.updateProjectionMatrix(); controls.update();
+}
+function applyMode(){
+  for(const m of meshes){
+    const base = flags.clay ? clay : m.userData.m0;
+    m.material = base; [].concat(base).forEach(mat => mat.wireframe = flags.wire);
+  }
+}
+function clearSel(){ if(sel.box){ scene.remove(sel.box); sel.box = null; } sel.mesh = null; }
+function disposeModel(){
+  stopPlayback();
+  if(!model) return;
+  disposeObj(model); scene.remove(model, grid, bbox); model = grid = bbox = null; meshes = []; clearSel();
+}
+
+// ---------- transport: animation clips + audio, one timeline ----------
+const T = {playing:false, t:0, speed:1, loop:true, dur:0, mixer:null, action:null, actions:[], audio:null, drag:false};
+let analyser = null, actx = null, fdata = null;
+const clock = new THREE.Clock();
+
+function stopPlayback(){
+  T.playing = false; T.t = 0; T.dur = 0; T.mixer?.stopAllAction(); T.mixer = T.action = null; T.actions = [];
+  if(T.audio){ T.audio.pause(); T.audio.removeAttribute('src'); T.audio.load(); T.audio = null; }
+  $('#tr').hidden = true; $('#viz').hidden = true; $('#tPlay').textContent = '▶';
+}
+function setupTransport(it, obj){
+  const clips = obj?.animations || [];
+  if(clips.length){
+    T.mixer = new THREE.AnimationMixer(obj);
+    T.actions = clips.map(c => T.mixer.clipAction(c));
+    $('#tClip').innerHTML = clips.map((c,i) => `<option value="${i}">${c.name || 'clip '+(i+1)} (${fmt(c.duration)})</option>`).join('');
+    $('#tClip').hidden = clips.length < 2; selectClip(0);
+  }
+  const af = it.files.find(f => AUD.includes(ext(f.n)));
+  if(af){
+    const a = T.audio = new Audio(url(it, af.n)); a.preload = 'auto'; a.volume = +$('#vol').value; a.playbackRate = T.speed;
+    a.onloadedmetadata = () => { recompute(); };
+  }
+  $('#volw').hidden = !af; recompute();
+}
+function selectClip(i){
+  T.actions.forEach(a => a.stop()); T.action = T.actions[i]; T.action.play(); recompute();
+}
+function recompute(){
+  T.dur = Math.max(T.action?.getClip().duration || 0, isFinite(T.audio?.duration) ? T.audio.duration : 0);
+  $('#tr').hidden = !(T.dur > 0 || T.audio);
+  $('#viz').hidden = !T.audio;
+  resize();
+}
+function setTime(t){
+  T.t = Math.max(0, Math.min(t, T.dur || 0));
+  if(T.audio) T.audio.currentTime = T.t;
+}
+function play(on){
+  if(!(T.dur > 0 || T.audio)) return;
+  if(on && T.t >= T.dur - .05) setTime(0);
+  T.playing = on; $('#tPlay').textContent = on ? '⏸' : '▶';
+  if(T.audio){
+    if(on){
+      if(!actx){ actx = new AudioContext(); analyser = actx.createAnalyser(); analyser.fftSize = 128; fdata = new Uint8Array(analyser.frequencyBinCount);
+        actx.createMediaElementSource(T.audio).connect(analyser); analyser.connect(actx.destination); }
+      actx.resume(); T.audio.playbackRate = T.speed; T.audio.play().catch(() => {});
+    } else T.audio.pause();
+  }
+}
+function tick(dt){
+  if(T.playing){
+    T.t = T.audio && !T.audio.paused ? T.audio.currentTime : T.t + dt*T.speed;
+    if(T.dur && T.t >= T.dur - .02){ if(T.loop){ setTime(0); T.audio && T.audio.play().catch(()=>{}); } else { setTime(T.dur); play(false); } }
+  }
+  if(T.action){ const d = T.action.getClip().duration; T.action.time = d ? T.t % d : 0; T.mixer.update(0); }
+  if(!T.drag && T.dur) $('#seek').value = T.t / T.dur * 1000;
+  $('#time').textContent = `${fmt(T.t)} / ${fmt(T.dur)}`;
+  if(analyser && !$('#viz').hidden){
+    const c = $('#viz'), g = c.getContext('2d'); g.clearRect(0,0,c.width,c.height);
+    if(T.playing){ analyser.getByteFrequencyData(fdata); const w = c.width/fdata.length;
+      g.fillStyle = '#6ea8ff'; fdata.forEach((v,i) => { const h = v/255*c.height; g.fillRect(i*w+1, c.height-h, w-2, h); }); }
+  }
+}
+$('#tPlay').onclick = () => play(!T.playing);
+$('#tStop').onclick = () => { setTime(0); };
+$('#seek').oninput = e => { T.drag = true; setTime(e.target.value/1000*T.dur); };
+$('#seek').onchange = () => T.drag = false;
+$('#tSpeed').onchange = e => { T.speed = +e.target.value; if(T.audio) T.audio.playbackRate = T.speed; };
+$('#tLoop').onclick = e => { T.loop = e.target.classList.toggle('on'); };
+$('#tClip').onchange = e => selectClip(+e.target.value);
+$('#vol').oninput = e => { if(T.audio) T.audio.volume = +e.target.value; };
+
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta();
+  if(view !== 'viewer') return;
+  tick(dt); controls.update();
+  key.position.copy(camera.position).add(new THREE.Vector3(1,2,1)); key.target.position.copy(controls.target);
+  sel.box?.update();
+  renderer.render(scene, camera);
+});
+
+// ---------- viewer ----------
+function mount(obj){
+  model = obj; scene.add(model); meshes = [];
+  model.traverse(o => { if(o.isMesh){ o.userData.m0 = o.material; meshes.push(o); } });
+  applyMode(); model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
+  const span = Math.max(size.x, size.y, size.z) || 1;
+  grid = new THREE.GridHelper(span*3, 30, 0x6b7280, 0x3b4150); grid.position.y = box.min.y; grid.visible = $('#bGrid').classList.contains('on');
+  grid.material.transparent = true; grid.material.opacity = .5;
+  bbox = new THREE.Box3Helper(box, 0x6ea8ff); bbox.visible = $('#bBox').classList.contains('on');
+  scene.add(grid, bbox);
+  frame(box); home = {pos:camera.position.clone(), tgt:controls.target.clone(), near:camera.near, far:camera.far};
+  $('#load').hidden = true; setupTransport(cur, obj); inspector(size);
+}
+function loadModel(it, file){
+  const my = ++token;
+  disposeModel(); $('#msg').textContent = ''; $('#load').hidden = false; $('#load').textContent = 'Loading…'; $('#load').style.setProperty('--b', cur.thumb ? `url('${cur.thumb}')` : 'none');
+  fetchModelRetry(it, file, e => { if(my===token && !model && e.lengthComputable) $('#load').textContent = `Loading… ${Math.round(e.loaded/e.total*100)}%`; })
+    .then(o => { if(my===token) mount(o); else disposeObj(o); })
+    .catch(e => { if(my===token){ $('#load').hidden = true; $('#msg').textContent = 'Could not load this file.\n'+(e?.message||e)+'\n(is serve.py still running?)'; } });
+}
+
+function open(id){
+  const it = lib.find(i => i.id===id); if(!it){ location.hash = ''; return; }
+  if(gated(id)){ setView('lib'); askAge(id); return; }
+  setView('viewer'); cur = it; token++; disposeModel();
+  $('#title').textContent = `${LABEL[it.type]||it.type} / ${it.name}`;
+  document.title = `${it.name} · Motion Library`;
+  const models = it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b) => VIEW.indexOf(ext(a.n)) - VIEW.indexOf(ext(b.n)));
+  const imgs = it.files.filter(f => IMG.includes(ext(f.n)));
+  const fsel = $('#fsel'), g = $('#gallery');
+  fsel.hidden = models.length < 2; fsel.innerHTML = models.map(f => `<option>${f.n}</option>`).join('');
+  const is3d = models.length > 0, isGal = !is3d && it.type==='reference' && imgs.length;
+  $('#center').firstElementChild.style.display = isGal ? 'none' : ''; g.style.display = isGal ? 'grid' : 'none';
+  ['bReset','bIn','bOut','bRot','bWire','bClay','bGrid','bBox','bg','bShot'].forEach(b => $('#'+b).disabled = !is3d);
+  $('#load').hidden = true; $('#msg').textContent = '';
+  if(isGal){
+    g.innerHTML = imgs.map((f,i) => `<figure data-i="${i}"><img loading="lazy" src="${f.t || url(it,f.n)}" onerror="this.onerror=null;this.src='${url(it,f.n)}'"><figcaption>${f.n}</figcaption></figure>`).join('');
+    g.onclick = e => { const f = e.target.closest('figure'); if(f) lightbox(imgs.map(x => url(it,x.n)), +f.dataset.i); };
+    inspector();
+  } else if(is3d) loadModel(it, models[0]);
+  else { setupTransport(it, null); vmdInfo(it); inspector(); }
+  resize();
+}
+async function vmdInfo(it){
+  const v = it.files.find(f => ext(f.n)==='vmd');
+  $('#msg').textContent = `No 3D preview for ${[...new Set(it.files.map(f=>ext(f.n)))].join(', ')}.` + (v ? '\nReading VMD motion…' : '\nOpen it in Blender / a DCC tool.');
+  if(!v) return;
+  const my = cur;
+  try{
+    const mod = await import('three/addons/libs/mmdparser.module.js'); const P = mod.MMDParser || mod;
+    const buf = await (await fetch(url(it, v.n))).arrayBuffer();
+    const d = new P.Parser().parseVmd(buf, true);
+    const bones = new Set(d.motions.map(m => m.boneName)), last = Math.max(0, ...d.motions.map(m => m.frameNum));
+    if(cur !== my) return;
+    $('#msg').textContent = `VMD motion  ·  ${bones.size} bone tracks  ·  ${d.motions.length.toLocaleString()} keyframes  ·  ${(last/30).toFixed(1)} s @30fps\n`
+      + 'It animates an MMD-rigged model (.pmx/.pmd). Drop one in this folder and it will play here.' + (T.audio ? '\nThe .wav plays with the controls below.' : '');
+  }catch(e){ $('#msg').textContent += '\n(VMD could not be parsed)'; }
+}
+$('#fsel').onchange = e => loadModel(cur, cur.files.find(f => f.n===e.target.value));
+
+// ---------- inspector ----------
+function inspector(size){
+  let h = '';
+  if(model){
+    let tris = 0, verts = 0; const mats = new Set(), tex = new Set();
+    for(const m of meshes){
+      const g = m.geometry; verts += g.attributes.position.count; tris += (g.index ? g.index.count : g.attributes.position.count)/3;
+      for(const mat of [].concat(m.userData.m0)){ mats.add(mat); Object.entries(mat).forEach(([k,v]) => v?.isTexture && tex.add(k+': '+(v.name || (v.image?.src||'').split('/').pop() || 'embedded'))); }
+    }
+    const sz = size ? [size.x,size.y,size.z].map(v => +v.toPrecision(3)).join(' × ') : '';
+    h += `<h3>Model</h3>
+      <div class="row"><span class="k">Meshes</span><span>${meshes.length}</span></div>
+      <div class="row"><span class="k">Triangles</span><span>${Math.round(tris).toLocaleString()}</span></div>
+      <div class="row"><span class="k">Vertices</span><span>${verts.toLocaleString()}</span></div>
+      <div class="row"><span class="k">Materials</span><span>${mats.size}</span></div>
+      <div class="row"><span class="k">Textures</span><span>${tex.size}</span></div>
+      <div class="row"><span class="k">Animations</span><span>${model.animations?.length || 0}</span></div>
+      <div class="row"><span class="k">Size</span><span>${sz}</span></div>
+      <h3>Meshes <small>(click = select · tick = show)</small></h3><div id="meshes">${meshes.map((m,i) =>
+        `<div class="mesh" data-i="${i}"><input type="checkbox" checked data-v="${i}"><span title="${m.name}">${m.name||'mesh '+i}</span></div>`).join('')}</div>
+      <h3>Selected</h3><div id="selinfo" style="color:var(--dim)">nothing</div>
+      <h3>Textures</h3><div style="color:var(--dim);word-break:break-all">${[...tex].join('<br>') || 'none'}</div>`;
+  }
+  h += `<h3>Files</h3><div class="files">${cur.files.map(f => `<div><a href="${url(cur,f.n)}" download title="${f.n}">${f.n}</a><small>${mb(f.s)}</small></div>`).join('')}</div>`;
+  $('#inspBody').innerHTML = h;
+}
+$('#inspBody').addEventListener('click', e => {
+  const v = e.target.dataset?.v;
+  if(v !== undefined){ meshes[v].visible = e.target.checked; return; }
+  const row = e.target.closest('.mesh'); if(row) select(meshes[+row.dataset.i]);
+});
+function select(m){
+  clearSel(); sel.mesh = m;
+  document.querySelectorAll('.mesh').forEach(r => r.classList.toggle('sel', m && meshes[+r.dataset.i]===m));
+  if(!m){ $('#selinfo') && ($('#selinfo').textContent = 'nothing'); return; }
+  sel.box = new THREE.BoxHelper(m, 0xffd166); scene.add(sel.box);
+  const g = m.geometry, mats = [].concat(m.userData.m0);
+  $('#selinfo').innerHTML = `<div class="row"><span class="k">Name</span><span>${m.name||'(unnamed)'}</span></div>
+    <div class="row"><span class="k">Triangles</span><span>${Math.round((g.index?g.index.count:g.attributes.position.count)/3).toLocaleString()}</span></div>
+    <div class="row"><span class="k">Material</span><span>${mats.map(x=>x.name||'(unnamed)').join(', ')}</span></div>`;
+}
+const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(); let down = null;
+const pick = e => { const r = renderer.domElement.getBoundingClientRect(); ptr.set((e.clientX-r.left)/r.width*2-1, -((e.clientY-r.top)/r.height)*2+1); ray.setFromCamera(ptr, camera); return ray.intersectObjects(meshes.filter(m=>m.visible), false)[0]; };
+renderer.domElement.addEventListener('pointerdown', e => down = [e.clientX, e.clientY]);
+renderer.domElement.addEventListener('pointerup', e => { if(down && Math.hypot(e.clientX-down[0], e.clientY-down[1]) < 4 && model){ select(pick(e)?.object||null); } });
+renderer.domElement.addEventListener('dblclick', e => { const h = pick(e); if(h){ select(h.object); frame(new THREE.Box3().setFromObject(h.object), true); } });
+
+// ---------- toolbar ----------
+const toggle = (id, fn) => $('#'+id).onclick = () => fn($('#'+id).classList.toggle('on'));
+$('#bReset').onclick = () => { if(!home) return; camera.position.copy(home.pos); controls.target.copy(home.tgt); camera.near = home.near; camera.far = home.far; camera.updateProjectionMatrix(); controls.update(); };
+const zoom = f => camera.position.sub(controls.target).multiplyScalar(f).add(controls.target);
+$('#bIn').onclick = () => zoom(.8); $('#bOut').onclick = () => zoom(1.25);
+toggle('bRot', on => controls.autoRotate = on);
+toggle('bWire', on => { flags.wire = on; applyMode(); });
+toggle('bClay', on => { flags.clay = on; applyMode(); });
+toggle('bGrid', on => grid && (grid.visible = on));
+toggle('bBox', on => bbox && (bbox.visible = on));
+toggle('bInsp', on => { $('#viewer').classList.toggle('noinsp', !on); resize(); });
+$('#bg').onchange = e => scene.background = new THREE.Color(e.target.value);
+$('#bShot').onclick = () => { renderer.render(scene, camera); renderer.domElement.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = (cur?.id||'shot')+'.png'; a.click(); }); };
+$('#bBack').onclick = () => location.hash = '';
+const step = d => { const i = lib.indexOf(cur), n = lib[(i+d+lib.length)%lib.length]; location.hash = n.id; };
+$('#bPrev').onclick = () => step(-1); $('#bNext').onclick = () => step(1);
+
+// ---------- lightbox ----------
+const lb = $('#lb'), lbImg = lb.querySelector('img'); let lbList = [], lbI = 0, S = {s:1,x:0,y:0};
+const lbApply = () => lbImg.style.transform = `translate(${S.x}px,${S.y}px) scale(${S.s}) translate(-50%,-50%)`;
+function lbShow(i){ lbI = (i+lbList.length)%lbList.length; lbImg.src = lbList[lbI]; S = {s:1,x:innerWidth/2,y:innerHeight/2}; lbImg.style.left = lbImg.style.top = '0'; lbApply(); }
+function lightbox(list, i){ lbList = list; lb.style.display = 'block'; lbShow(i); }
+lb.addEventListener('wheel', e => { e.preventDefault(); const f = e.deltaY<0 ? 1.15 : 1/1.15; S.x = e.clientX-(e.clientX-S.x)*f; S.y = e.clientY-(e.clientY-S.y)*f; S.s *= f; lbApply(); }, {passive:false});
+let drag = null, moved = false;
+lb.onpointerdown = e => { drag = [e.clientX-S.x, e.clientY-S.y]; moved = false; lb.setPointerCapture(e.pointerId); lb.style.cursor = 'grabbing'; };
+lb.onpointermove = e => { if(drag){ moved = true; S.x = e.clientX-drag[0]; S.y = e.clientY-drag[1]; lbApply(); } };
+lb.onpointerup = e => { drag = null; lb.style.cursor = 'grab'; if(!moved && e.target===lb) lb.style.display = 'none'; };
+lb.ondblclick = () => lbShow(lbI);
+
+// ---------- library (visual grid) ----------
+let lib = [], filter = 'all';
+const ADULT = new Set();                                    // ids listed in adult.json (edit that file to change the list)
+let ok18 = false; try{ ok18 = sessionStorage.getItem('ok18') === '1'; }catch(e){}
+const gated = id => ADULT.has(id) && !ok18;
+function askAge(id){
+  $('#gate').style.display = 'flex';
+  $('#gYes').onclick = () => { ok18 = true; try{ sessionStorage.setItem('ok18','1'); }catch(e){} $('#gate').style.display = 'none'; renderLib(); open(id); };
+  $('#gNo').onclick = () => { $('#gate').style.display = 'none'; location.hash = ''; };
+}
+function setView(v){
+  view = v; $('#lib').hidden = $('#hLib').hidden = v!=='lib'; $('#viewer').hidden = $('#hView').hidden = v!=='viewer';
+  if(v==='lib'){ document.title = 'Motion Library'; disposeModel(); cur = null; }
+  resize();
+}
+function thumbOf(it){
+  if(it.thumb) return it.thumb;
+  const im = it.type==='reference' && it.files.find(f => IMG.includes(ext(f.n)));
+  return im ? (im.t || url(it, im.n)) : null;
+}
+function card(it){
+  const m = pickModel(it), th = thumbOf(it);
+  const tag = m ? ext(m.n) : it.files.some(f => AUD.includes(ext(f.n))) ? 'audio' : it.type==='reference' ? 'images' : ext(it.files.find(f => /blend|max|vmd/.test(ext(f.n)))?.n || it.files[0]?.n || '');
+  const ph = m ? '' : tag.toUpperCase();
+  const ad = gated(it.id);
+  return `<div class="card ${ad ? 'adult' : ''}" data-id="${it.id}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${it.id}" ${th ? `style="--b:url('${th}')"` : ''}>${th ? `<img loading="lazy" src="${th}" onload="this.classList.add('ld')">` : `<span class="ph">${ph}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
+    <div class="meta"><b title="${it.name}">${it.name}</b><span>${LABEL[it.type]||it.type} · ${tag}</span></div></div>`;
+}
+function renderLib(){
+  const q = $('#q').value.trim().toLowerCase();
+  $('#chips').innerHTML = ['all',...Object.keys(LABEL)].map(t => `<button class="chip ${filter===t?'on':''}" data-t="${t}">${t==='all'?'All':LABEL[t]}</button>`).join(' ');
+  let out = '';
+  for(const t of Object.keys(LABEL)){
+    if(filter!=='all' && filter!==t) continue;
+    const items = lib.filter(i => i.type===t && (i.name+' '+t).toLowerCase().includes(q));
+    if(items.length) out += `<h2>${LABEL[t]} · ${items.length}</h2><div class="grid">${items.map(card).join('')}</div>`;
+  }
+  $('#lib').innerHTML = out || '<p style="color:var(--dim)">Nothing matches.</p>';
+}
+$('#chips').onclick = e => { const t = e.target.dataset.t; if(t){ filter = t; renderLib(); } };
+$('#lib').onclick = e => { const c = e.target.closest('.card'); if(c) location.hash = c.dataset.id; };
+$('#q').oninput = renderLib;
+$('#cw').oninput = e => document.documentElement.style.setProperty('--cw', e.target.value+'px');
+
+// preview generator: renders each model once, posts the JPEG to serve.py so it is cached on disk
+let rig = null;
+function thumbRig(){
+  if(rig) return rig;
+  const r = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true}); r.setSize(360, 480, false); r.outputColorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Scene(); s.background = new THREE.Color('#1b1e24');
+  s.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), .04).texture;
+  s.add(new THREE.HemisphereLight(0xffffff, 0x555566, 1.6));
+  const l = new THREE.DirectionalLight(0xffffff, 2.2); l.position.set(2,3,4); s.add(l);
+  return rig = {r, s, cam:new THREE.PerspectiveCamera(35, .75, .1, 1000)};
+}
+async function makeThumb(it){
+  const obj = await fetchModelRetry(it, pickModel(it), () => {}), {r, s, cam} = thumbRig();
+  try{
+    s.add(obj); obj.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(obj), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    const t = Math.tan(THREE.MathUtils.degToRad(cam.fov)/2);
+    const d = Math.max(size.y/(2*t), size.x/(2*t*cam.aspect)) * 1.12 + size.z/2;
+    cam.position.set(c.x + d*.18, c.y + size.y*.04, c.z + d); cam.near = d/100; cam.far = d*100; cam.updateProjectionMatrix(); cam.lookAt(c);
+    r.render(s, cam);
+    return await new Promise(res => r.domElement.toBlob(res, 'image/jpeg', .82));
+  } finally { s.remove(obj); disposeObj(obj); }
+}
+async function thumbQueue(){
+  const todo = lib.filter(i => !thumbOf(i) && pickModel(i)).sort((a,b) => pickModel(a).s - pickModel(b).s);
+  let n = 0;
+  for(const it of todo){
+    while(view==='viewer') await sleep(1000);          // stay out of the way while a model is open
+    $('#status').textContent = `making previews ${++n}/${todo.length}`;
+    try{
+      const blob = await makeThumb(it);
+      fetch(`/thumb/${it.id}.jpg`, {method:'POST', body:blob}).catch(() => {});
+      it.thumb = URL.createObjectURL(blob);
+      const th = document.querySelector(`[data-th="${it.id}"]`);
+      if(th){ th.style.setProperty('--b', `url('${it.thumb}')`); th.replaceChildren(Object.assign(new Image(), {src:it.thumb, onload(){ this.classList.add('ld'); }})); }
+    }catch(e){ console.warn('preview failed', it.id, e); }
+    await sleep(50);
+  }
+  $('#status').textContent = '';
+}
+
+window.mv = {THREE, get meshes(){ return meshes; }, get cur(){ return cur; }};   // console handle for debugging
+
+// ---------- routing + keys ----------
+function route(){ const id = decodeURIComponent(location.hash.slice(1)); if(id) open(id); else setView('lib'); }
+addEventListener('hashchange', route);
+addEventListener('keydown', e => {
+  if(e.key==='/' && document.activeElement!==$('#q') && view==='lib'){ e.preventDefault(); $('#q').focus(); return; }
+  if(/INPUT|SELECT/.test(document.activeElement.tagName) && e.key!=='Escape') return;
+  if(lb.style.display==='block'){ if(e.key==='Escape') lb.style.display='none'; if(e.key==='ArrowRight') lbShow(lbI+1); if(e.key==='ArrowLeft') lbShow(lbI-1); return; }
+  if(view!=='viewer') return;
+  const k = e.key.toLowerCase();
+  if(e.key==='Escape') location.hash = '';
+  else if(k==='r') $('#bReset').click(); else if(k==='w') $('#bWire').click(); else if(k==='c') $('#bClay').click();
+  else if(k==='g') $('#bGrid').click(); else if(k==='b') $('#bBox').click(); else if(k==='i') $('#bInsp').click();
+  else if(k==='[') step(-1); else if(k===']') step(1);
+  else if(k===' '){ e.preventDefault(); if(T.dur||T.audio) play(!T.playing); else $('#bRot').click(); }
+  else if(e.key==='ArrowRight' && T.dur) setTime(T.t+5); else if(e.key==='ArrowLeft' && T.dur) setTime(T.t-5);
+});
+
+fetch('adult.json').then(r => r.json()).catch(() => []).then(a => a.forEach(x => ADULT.add(x)))
+  .then(() => fetch('library.json')).then(r => r.json()).then(d => { lib = d; renderLib(); route(); thumbQueue(); })
+  .catch(() => { $('#lib').innerHTML = '<p style="color:var(--dim)">library.json not found. Run: python3 serve.py</p>'; });
+</script>
+</body>
+</html>
