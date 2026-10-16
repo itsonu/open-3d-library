@@ -149,7 +149,7 @@ const PLANT_VS = /* glsl */`                                            // flowe
   h *= mix(.55, 1., smoothstep(.2 * uSpan, 1.2 * uSpan, distance(aOff, uCamPos)));                 // shorter right at the camera
   float part = aPart; vLeaf = 0.; vLeafUv = vec2(0.); vTipT = 0.;
   float cat = aMisc.x > 4.5 && aMisc.x < 5.5 ? 1. : 0., reed = aMisc.x > 5.5 && aMisc.x < 6.5 ? 1. : 0.;     // species 5 = cattail, 6 = reed
-  bool pet = (part > .5 && part < 1.5) || (part > 5.5 && part < 6.5), plume = part > 6.5, bowl = (aMisc.x > .5 && aMisc.x < 1.5) || (aMisc.x > 2.5 && aMisc.x < 3.5);   // petal variant B for species 1 and 3
+  bool pet = (part > .5 && part < 1.5) || (part > 5.5 && part < 6.5), plume = part > 6.5 && part < 7.5, bowl = (aMisc.x > .5 && aMisc.x < 1.5) || (aMisc.x > 2.5 && aMisc.x < 3.5);   // petal variant B for species 1 and 3
   vec2 leanDir = vec2(cos(yaw * 1.7 + 2.), sin(yaw * 1.7 + 2.)); float leanAmt = h * (.03 + .13 * fract(ph * 9.17)) * (1. + reed * .9);
   vec3 p;
   if(part < .5){ float t = position.y; p = stem(t, h, ph, aMisc.z, aMisc.x); p.xz += leanDir * leanAmt * t * t;
@@ -158,12 +158,17 @@ const PLANT_VS = /* glsl */`                                            // flowe
     if(reed > .5) green = mix(vec3(.36, .36, .17), vec3(.5, .5, .25), aMisc.y);                                           // tan-olive culms
     if(cat > .5) green = mix(vec3(.2, .34, .14), vec3(.3, .44, .2), aMisc.y);
     vCol3 = green * (.8 + .3 * t) * mix(.45, 1., smoothstep(0., .4, t)); vegNormal = vec3(0., 1., 0.); }
-  else { vec3 a = stem(aAttach, h, ph, aMisc.z, aMisc.x); a.xz += leanDir * leanAmt * aAttach * aAttach;
+  else { bool slot = part > 9.5; float si = part - 10., fk = fract(ph * 7.13), at = slot ? clamp(aAttach * (.7 + .6 * fract(ph * 17.1 + si * .7)), 0., .5) : aAttach;   // slot leaves sit at their own height on the stem
+    vec3 a = stem(at, h, ph, aMisc.z, aMisc.x); a.xz += leanDir * leanAmt * at * at;
     vec3 o = position * size; float open = (aMisc.w > 0. && cat < .5 && reed < .5) ? aMisc.w : 1.;
     if(pet && (part > 5.5) != bowl && aMisc.x < 4.5) o = vec3(0.);                                                     // show only this species' petal variant
     if(plume && aMisc.w < .35) o = vec3(0.);                                                                          // not every reed carries a seed head
     if(pet){ o.xz *= mix(.3, 1., open); o.y *= mix(1.6, 1., open); o.xz *= .92 + .16 * fract(ph * 13.1); }             // buds / half-open flowers, per-flower size jitter
     if(cat > .5 && part > 1.5 && part < 2.5){ o.y *= aColor.r; o.xz *= aMisc.w; }
+    if(slot){ bool bud = aMisc.w < .5; float nL = bud ? 1. + floor(fk * 2.99) : 1. + floor(fk * 4.99);                    // buds keep 1-3 small upright leaves, open flowers 1-5 (most 2-5)
+      if(si >= nL) o = vec3(0.);
+      else { float fs = (.5 + .45 * fract(ph * 3.9)) * (.55 + .6 * fract(ph * 5.7 + si * .31)) * (bud ? .8 : 1.) * (aMisc.x > 3.5 ? .75 : aMisc.x > 2.5 ? 1.15 : aMisc.x > 1.5 ? .85 : 1.);   // plant, leaf and species size
+        o *= fs; if(bud) o.y *= 1.3; o.xz = rot2(o.xz, (fract(ph * 23.3 + si * .37) - .5) * (bud ? .5 : 1.3)); } }
     o.xz = rot2(o.xz, -yaw);
     if((pet || (part > 1.5 && part < 2.5)) && cat < .5){ float tilt = .1 + .5 * fract(ph * 5.3); o.xz += leanDir * (o.y * tilt); o.y *= cos(tilt); }   // heads nod, none face straight up
     p = a + o; vegNormal = normalize(vec3(0., 1., 0.) + vec3(o.x, 0., o.z) * .2 / max(size, 1e-4));
@@ -173,6 +178,8 @@ const PLANT_VS = /* glsl */`                                            // flowe
       vegNormal = normalize(vec3(0., 1., 0.) + vec3(o.x, 0., o.z) * .7 / max(size, 1e-4)); }
     else if(part > 1.5 && part < 2.5){ vec3 c0 = cat > .5 ? vec3(.3, .16, .07) * (.8 + .4 * aMisc.y) : (aMisc.x > 2.5 && aMisc.x < 3.5) ? vec3(.09, .06, .05) : vec3(.93, .72, .12);
       vCol3 = c0 * (.55 + .7 * smoothstep(.15, .38, position.y)); }                                                       // domed centre, darker where it meets the petals
+    else if(slot){ vec3 g = mix(vec3(.15, .31, .07), vec3(.27, .46, .12), aMisc.y) * (.85 + .3 * fract(ph * 4.4));
+      vCol3 = g * mix(.55, 1., smoothstep(0., 1.2, length(position.xz))) * (.85 + .25 * smoothstep(0., .5, position.y)); vTipT = .3; }   // darker where it leaves the stem
     else if(plume){ vCol3 = mix(vec3(.3, .22, .2), vec3(.55, .45, .36), position.y / .3) * (.85 + .3 * aMisc.y); vTipT = .4; }
     else { vCol3 = reed > .5 ? mix(vec3(.3, .42, .14), vec3(.5, .56, .22), aMisc.y) * (.7 + .5 * position.y) : mix(vec3(.14, .3, .07), vec3(.26, .45, .12), aMisc.y) * (.7 + .5 * position.y); vTipT = .3; } }
   transformed = aOff + p; vWorld = transformed;
@@ -358,7 +365,10 @@ const grassGeo = geo([{...bladeProfile(5, .92), part: 0}]);
   const cpos = [0, .38, 0], cidx = []; for(let ring = 0; ring < 2; ring++) for(let i = 0; i < 9; i++){ const a = i / 9 * Math.PI * 2, rr = ring ? .11 : .22; cpos.push(Math.cos(a) * rr, ring ? .31 : .18, Math.sin(a) * rr); }
   for(let i = 0; i < 9; i++){ const j = (i + 1) % 9; cidx.push(1 + 9 + i, 1 + 9 + j, 0, 1 + i, 1 + j, 1 + 9 + i, 1 + j, 1 + 9 + j, 1 + 9 + i); }
   const headParts = [{pos: flA.pos, idx: flA.idx, part: 1, attach: Array(flA.pos.length / 3).fill(1)}, {pos: flB.pos, idx: flB.idx, part: 6, attach: Array(flB.pos.length / 3).fill(1)}, {pos: cpos, idx: cidx, part: 2, attach: Array(cpos.length / 3).fill(1)}];
-  const flowerGeo = geo([{...ribbon(4, .1, 1), part: 0}, ...headParts]);
+  // lower-stem leaves: five slots (narrow lanceolate and broader ovals, lower ones long and flat, upper ones short and upright); PLANT_VS keeps 2-5 per flower
+  const flLeaves = [[.03, 0, .36, 2.1, .45], [.06, 2.4, .66, 1.9, .4], [.1, 4.8, .4, 1.8, .55], [.2, 1.1, .6, 1.5, .6], [.32, 3.6, .34, 1.2, .7]]    // attach t, angle, width, length, rise
+    .map(([t, a, w, L, r], i) => { const l = leafBlade(L, w, r, a, 0, 4); return {...l, part: 10 + i, attach: Array(l.pos.length / 3).fill(t)}; });
+  const flowerGeo = geo([{...ribbon(4, .1, 1), part: 0}, ...headParts, ...flLeaves]);
   const dockParts = [{...ribbon(4, .2, 1), part: 0}];
   [[.3, 0], [.5, 2.1], [.7, 4.2]].forEach(([t, a]) => { const l = leafBlade(1, .5, .25, a, 0, 3); dockParts.push({...l, part: 3, attach: Array(l.pos.length / 3).fill(t)}); });
   const dockGeo = geo(dockParts);

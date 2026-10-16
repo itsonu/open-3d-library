@@ -272,13 +272,16 @@ void main() {
   sN = normalize(mat3(modelMatrix) * sN);
   sC = mat3(modelMatrix) * sC;
   sC = normalize(sC - sN * dot(sC, sN) + 1e-6);
+  // hair length, seam sink and the like are metres of the animal's own space: scale them with the model matrix,
+  // so an animal parented under a scaled group (a metre-sized animal in a 60x world) keeps its coat proportions
+  float ws = length(modelMatrix[0].xyz);
 #ifndef FUR_SHELL
   // seams (build/seams.js): two overlapping surfaces hand over at fade 0.5 but do not coincide there.
   // Past the midline the base does not stop at a step one could look through: it sinks along its
   // normal under the surface taking over (which wins the depth test), down to fade uSeam.y.
   // (quadratic: tangent to the skin at the midline, so coarse triangles across the band do not fold)
   float seamT = clamp((0.5 - aCoat.w) / max(0.5 - uSeam.y, 1e-3), 0.0, 1.0);
-  sP -= sN * (uSeam.x * seamT * seamT);
+  sP -= sN * (uSeam.x * ws * seamT * seamT);
 #endif
 
   float h = 0.0;
@@ -292,7 +295,7 @@ void main() {
   // fades in by the fraction)
   float layerFade = clamp(1.0 - (h - 1.0) * uShells, 0.0, 1.0);
   h = min(h, 1.0);
-  wp = sP + hairOffset(sN, sC, force, L, h);
+  wp = sP + hairOffset(sN, sC, force, L, h) * ws;
   strand = hairDir(sN, sC, force, L, h);
 #endif
   debugColour(skinIndex, skinWeight);
@@ -321,7 +324,7 @@ void main() {
 #ifdef FUR_SHELL
   // (render hint shellDepthBias: the layer's depth taken from a point that much nearer the camera, so a layer that
   // slid into a crease of its own skin still shows; its place on screen is unchanged)
-  float depthBias = uShellBias.x * max(0.0, L - uShellBias.y);
+  float depthBias = uShellBias.x * max(0.0, L - uShellBias.y) * ws;
   if (depthBias > 0.0) {
     vec4 q = projectionMatrix * viewMatrix * vec4(wp + normalize(cameraPosition - wp) * depthBias, 1.0);
     gl_Position.z = q.z / q.w * gl_Position.w;
@@ -330,7 +333,7 @@ void main() {
   vec3 transformedNormal = (viewMatrix * vec4(sN, 0.0)).xyz;
 #ifdef FUR_SHELL
   // (render hint shellShadowRoot: the cast shadow of a layer taken toward its strand's root, 4 mm off the skin)
-  if (uShellShadowRoot > 0.0) worldPosition = vec4(mix(wp, sP + sN * 0.004, uShellShadowRoot), 1.0);
+  if (uShellShadowRoot > 0.0) worldPosition = vec4(mix(wp, sP + sN * 0.004 * ws, uShellShadowRoot), 1.0);
 #endif
   #include <shadowmap_vertex>
   #include <fog_vertex>
@@ -363,6 +366,7 @@ void main() {
   sN = normalize(mat3(modelMatrix) * sN);
   sC = mat3(modelMatrix) * sC;
   sC = normalize(sC - sN * dot(sC, sN) + 1e-6);
+  float ws = length(modelMatrix[0].xyz);   // see the main vertex shader: metre offsets scale with the model matrix
   float L = iCoat.z * uFurScale;
   vec3 V = normalize(cameraPosition - sP);
   float ndv = dot(sN, V);
@@ -383,7 +387,7 @@ void main() {
   side = dot(side, side) > 1e-8 ? normalize(side) : normalize(cross(sN, V) + 1e-4);
   float w = clamp(L * uFinWidth, 0.0028, 0.012) * (abs(m - 4.0) < 0.5 ? 0.45 : 1.0);
   // hairs on the silhouette stand a little prouder than the lying coat
-  vec3 wp = sP + hairOffset(sN, sC, force, L * 1.08, y) + sN * (L * 0.08 * y) + side * (position.x * w);
+  vec3 wp = sP + (hairOffset(sN, sC, force, L * 1.08, y) + sN * (L * 0.08 * y) + side * (position.x * w)) * ws;
   debugColour(iSkinIndex, iSkinWeight);
   vRest = iPos;
   vRestN = iNrm;
@@ -408,7 +412,7 @@ void main() {
   // depth-tested from a point 0.6 hair lengths nearer the camera (the coat it stands in rises 0.5), so its
   // own coat does not hide it, while a part in front of it (a leg, a belly fringe) still does, and so does
   // the skin of a limb as thick as its hair: a tarantula's leg seen end-on hid the cards round its far side)
-  vec4 qF = projectionMatrix * viewMatrix * vec4(wp + V * (L * 0.6), 1.0);
+  vec4 qF = projectionMatrix * viewMatrix * vec4(wp + V * (L * 0.6 * ws), 1.0);
   gl_Position.z = qF.z / qF.w * gl_Position.w;
   vec3 transformedNormal = (viewMatrix * vec4(sN, 0.0)).xyz;
   #include <shadowmap_vertex>
