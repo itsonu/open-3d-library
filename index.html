@@ -347,7 +347,7 @@ function tick(dt){
     T.t = T.audio && !T.audio.paused ? T.audio.currentTime : T.t + dt*T.speed;
     if(T.dur && T.t >= T.dur - .02){ if(T.loop){ setTime(0); T.audio && T.audio.play().catch(()=>{}); } else { setTime(T.dur); play(false); } }
   }
-  if(T.action){ const d = T.action.getClip().duration; T.action.time = d ? T.t % d : 0; T.mixer.update(0); }
+  if(T.action){ const d = T.action.getClip().duration; T.action.time = d ? T.t % d : 0; T.mixer.update(0); model?.userData.post?.(); }
   if(!T.drag && T.dur) $('#seek').value = T.t / T.dur * 1000;
   $('#time').textContent = `${fmt(T.t)} / ${fmt(T.dur)}`;
   if(analyser && !$('#viz').hidden){
@@ -422,7 +422,10 @@ function open(id){
   const imgs = it.files.filter(f => IMG.includes(ext(f.n)));
   const fsel = $('#fsel'), g = $('#gallery');
   fsel.hidden = models.length < 2; fsel.innerHTML = models.map(f => `<option>${f.n}</option>`).join('');
-  const is3d = models.length > 0, isGal = !is3d && it.type==='reference' && imgs.length;
+  const vmds = it.files.filter(f => ext(f.n)==='vmd').sort((a,b) => /cnv/i.test(a.n) - /cnv/i.test(b.n));
+  const mocap = !models.length && vmds.length > 0;           // a VMD with no model: play it on the built-in mannequin (vmdplayer.js)
+  if(mocap){ fsel.hidden = vmds.length < 2; fsel.innerHTML = vmds.map(f => `<option>${f.n}</option>`).join(''); }
+  const is3d = models.length > 0 || mocap, isGal = !is3d && it.type==='reference' && imgs.length;
   $('#center').firstElementChild.style.display = isGal ? 'none' : ''; g.style.display = isGal ? 'grid' : 'none';
   ['bReset','bIn','bOut','bRot','bWire','bClay','bGrid','bBox','bg','bShot'].forEach(b => $('#'+b).disabled = !is3d);
   $('#load').hidden = true; $('#msg').textContent = ''; $('#bSkel').hidden = true;
@@ -430,7 +433,8 @@ function open(id){
     g.innerHTML = imgs.map((f,i) => `<figure data-i="${i}"><img loading="lazy" src="${f.t || url(it,f.n)}" onerror="this.onerror=null;this.src='${url(it,f.n)}'"><figcaption>${f.n}</figcaption></figure>`).join('');
     g.onclick = e => { const f = e.target.closest('figure'); if(f) lightbox(imgs.map(x => url(it,x.n)), +f.dataset.i); };
     inspector();
-  } else if(is3d) loadModel(it, models[0]);
+  } else if(mocap) loadMocap(it, vmds[0]);
+  else if(is3d) loadModel(it, models[0]);
   else { setupTransport(it, null); vmdInfo(it); inspector(); }
   resize();
 }
@@ -449,7 +453,14 @@ async function vmdInfo(it){
       + 'It animates an MMD-rigged model (.pmx/.pmd). Drop one in this folder and it will play here.' + (T.audio ? '\nThe .wav plays with the controls below.' : '');
   }catch(e){ $('#msg').textContent += '\n(VMD could not be parsed)'; }
 }
-$('#fsel').onchange = e => loadModel(cur, cur.files.find(f => f.n===e.target.value));
+function loadMocap(it, file){
+  const my = ++token;
+  disposeModel(); $('#msg').textContent = ''; $('#load').hidden = false; $('#load').textContent = 'Reading motion…'; $('#load').style.setProperty('--b', 'none');
+  fetch(url(it, file.n)).then(r => r.arrayBuffer()).then(buf => import('./vmdplayer.js').then(m => m.buildMannequin(buf)))
+    .then(o => { if(my===token) mount(o); else disposeObj(o); })
+    .catch(e => { if(my===token){ $('#load').hidden = true; $('#msg').textContent = 'Could not read this motion.\n' + (e?.message||e); } });
+}
+$('#fsel').onchange = e => { const f = cur.files.find(f => f.n===e.target.value); ext(f.n)==='vmd' ? loadMocap(cur, f) : loadModel(cur, f); };
 
 // ---------- inspector ----------
 function inspector(size){
