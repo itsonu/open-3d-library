@@ -460,6 +460,7 @@ export function createEyes(eyeData) {
     const E = ed.spec;
     const own = {
       uSocketInv: { value: new THREE.Matrix4() },
+      uLocalInv: { value: new THREE.Matrix4() },   // world -> animal-local (inverse of the eye's parent matrixWorld)
       uIrisZ: { value: E.irisZ ?? E.r * 0.6 },
       uIrisR: { value: E.irisR ?? E.r * 0.8 },
       uLensR: { value: E.R ?? E.r * 1.15 },
@@ -478,8 +479,8 @@ export function createEyes(eyeData) {
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, shared, own);
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vEyeObj; varying vec3 vCamObj; varying vec3 vEyeWorld; varying vec3 vIrisN;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vEyeObj = position;\n  vEyeWorld = (modelMatrix * vec4(position, 1.0)).xyz;\n  vCamObj = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;\n  vIrisN = normalize(normalMatrix * vec3(0.0, 0.0, 1.0));');
+        .replace('#include <common>', '#include <common>\nvarying vec3 vEyeObj; varying vec3 vCamObj; varying vec3 vEyeWorld; varying vec3 vIrisN; uniform mat4 uLocalInv;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vEyeObj = position;\n  vEyeWorld = (uLocalInv * modelMatrix * vec4(position, 1.0)).xyz;      // animal-local space (uSocketInv lives there), not world: the parent may be scaled or moved\n  vCamObj = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;\n  vIrisN = normalize(normalMatrix * vec3(0.0, 0.0, 1.0));');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', '#include <common>\n' + PARS)
         .replace('#include <map_fragment>', MAP)
@@ -668,7 +669,7 @@ export class EyeRig {
       if (!still) this._qe.multiply(this._q2.setFromAxisAngle(this._Y, gy)).multiply(this._q2.setFromAxisAngle(this._X, -gp));
       e.matrix.compose(this._p, this._qe, this._s);
       e.matrixWorld.copy(e.matrix);
-      if (e.parent) e.matrixWorld.premultiply(e.parent.matrixWorld);
+      if (e.parent) { e.matrixWorld.premultiply(e.parent.matrixWorld); d.own.uLocalInv.value.copy(e.parent.matrixWorld).invert(); } else d.own.uLocalInv.value.identity();
     }
   }
 }
