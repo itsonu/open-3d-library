@@ -159,8 +159,8 @@ function fetchModel(it, file, onProg){
     let obj = null, idle = false, fired = false;      // resolve once the model AND its textures have loaded
     const fin = () => { if(obj && idle && !fired){ fired = true; fixTextures(obj, it).then(() => resolve(obj)); } };
     const res = o => { obj = o; fin(); setTimeout(() => { idle = true; fin(); }, 20000); };   // 20 s safety net
-    const norm = n => n.toLowerCase().replace(/[\s_]+/g,'_');
-    const names = new Map(it.files.map(f => [norm(f.n), f.n]));
+    const norm = n => n.toLowerCase().replace(/\.[^.]+$/,'').replace(/[^a-z0-9]/g,'');   // 'Material #18_Diffuse.png' ~ 'Material__18_Diffuse.jpeg'
+    const names = new Map(it.files.filter(f => IMG.includes(ext(f.n))).map(f => [norm(f.n), f.n]));
     const mgr = new THREE.LoadingManager(() => { idle = true; fin(); });
     mgr.setURLModifier(u => {
       if(/^(blob|data):/.test(u)) return u;
@@ -178,27 +178,41 @@ function fetchModel(it, file, onProg){
       else l.load(u, res, onProg, rej);
     }, rej);
     else {
-      const mtl = names.get(norm(file.n.replace(/\.obj$/i,'.mtl')));
+      const want = file.n.replace(/\.obj$/i,'.mtl').toLowerCase(), mtl = it.files.find(f => f.n.toLowerCase() === want)?.n;
       const go = mats => { const l = new OBJLoader(mgr); if(mats) l.setMaterials(mats); l.load(u, res, onProg, rej); };
       if(mtl) new MTLLoader(mgr).load(url(it, mtl), m => { m.preload(); go(m); }, undefined, () => go()); else go();
     }
   });
 }
-// FBX files that reference textures by a name that doesn't exist (e.g. "tmp123.fbm/image_0_png") leave maps empty, which renders
-// black. If the model has a single material, attach the folder's colour/normal image by ROLE; otherwise drop the dead map.
+// Some exports lose their texture links (FBX pointing at "tmp123.fbm/image_0_png", GLB stripped of its images, FBX whose
+// materials just lack maps). Repair in order: 1) explicit per-model rules from fixes.json, 2) match image files to
+// material names by role (bodi -> bodi_Diffuse / bodi_Normal), 3) single-material models take the folder's colour image,
+// 4) drop any map whose image never arrived (it would render black).
+let FIX = {};
 async function fixTextures(obj, it){
   const imgs = it.files.filter(f => IMG.includes(ext(f.n)));
-  const color = imgs.find(f => /colou?r|diffuse|albedo|base/i.test(f.n)) || (imgs.length===1 ? imgs[0] : null);
-  const normal = imgs.find(f => /normal|nrm/i.test(f.n));
-  const mats = new Set(); obj.traverse(o => o.isMesh && [].concat(o.material).forEach(m => mats.add(m)));
-  const single = mats.size === 1, jobs = [];
-  for(const m of mats) for(const k of ['map','normalMap','roughnessMap','metalnessMap','aoMap','emissiveMap','alphaMap','specularMap','bumpMap']){
-    if(!m[k] || m[k].image) continue;
-    const f = single && (k==='map' ? color : k==='normalMap' ? normal : null);
-    if(f) jobs.push(new THREE.TextureLoader().loadAsync(url(it, f.n)).then(t => { if(k==='map') t.colorSpace = THREE.SRGBColorSpace; m[k] = t; m.needsUpdate = true; }, () => { m[k] = null; m.needsUpdate = true; }));
-    else { m[k] = null; m.needsUpdate = true; }
+  const cache = {}, jobs = [];
+  const tex = (f, srgb) => (cache[f.n] ??= new THREE.TextureLoader().loadAsync(url(it, f.n))).then(t => { t = t.clone(); t.needsUpdate = true; if(srgb) t.colorSpace = THREE.SRGBColorSpace; return t; });
+  const put = (m, k, f) => jobs.push(tex(f, k==='map').then(t => { m[k] = t; if(k==='map') m.vertexColors = false; m.needsUpdate = true; }, () => {}));
+  const byName = n => imgs.find(f => f.n === n);
+  const role = n => /bump|height/i.test(n) ? 'bumpMap' : /normal|nrm|_n\.|_n$/i.test(n) ? 'normalMap' : /colou?r|diffuse|albedo|base|_c\.|_c$/i.test(n) ? 'map' : null;
+  const key = n => n.toLowerCase().replace(/\.[^.]+$/, '').replace(/[^a-z].*$/, '');
+  const fx = FIX[it.id];
+  const meshes = []; obj.traverse(o => o.isMesh && meshes.push(o));
+  if(fx) for(const o of meshes){ const f = byName(fx[o.name] || fx['*']); if(f) [].concat(o.material).forEach(m => put(m, 'map', f)); }
+  else {
+    const mats = new Set(meshes.flatMap(o => [].concat(o.material)));
+    const color = imgs.find(f => role(f.n)==='map') || (imgs.length===1 ? imgs[0] : null), normal = imgs.find(f => role(f.n)==='normalMap');
+    for(const m of mats){
+      if(m.map?.image) continue;
+      const mine = m.name ? imgs.filter(f => key(f.n) && key(f.n) === key(m.name)) : [];
+      if(mine.length) for(const f of mine){ const r = role(f.n); if(r && !m[r]?.image) put(m, r, f); }
+      else if(mats.size === 1){ if(color) put(m, 'map', color); if(normal && !m.normalMap?.image) put(m, 'normalMap', normal); }
+    }
   }
   await Promise.all(jobs);
+  for(const o of meshes) for(const m of [].concat(o.material)) for(const k of ['map','normalMap','bumpMap','roughnessMap','metalnessMap','aoMap','emissiveMap','alphaMap','specularMap'])
+    if(m[k] && !m[k].image){ m[k] = null; m.needsUpdate = true; }
 }
 const fetchModelRetry = async (it, file, onProg) => {   // a dropped connection mid-download shouldn't kill the load
   for(let i = 0;; i++){
@@ -576,7 +590,8 @@ addEventListener('keydown', e => {
   else if(e.key==='ArrowRight' && T.dur) setTime(T.t+5); else if(e.key==='ArrowLeft' && T.dur) setTime(T.t-5);
 });
 
-fetch('adult.json').then(r => r.json()).catch(() => []).then(a => a.forEach(x => ADULT.add(x)))
+fetch('fixes.json').then(r => r.json()).then(j => { FIX = j; }).catch(() => {})
+  .then(() => fetch('adult.json')).then(r => r.json()).catch(() => []).then(a => a.forEach(x => ADULT.add(x)))
   .then(() => fetch('library.json')).then(r => r.json()).then(d => { lib = d; renderLib(); route(); thumbQueue(); })
   .catch(() => { $('#lib').innerHTML = '<p style="color:var(--dim)">library.json not found. Run: python3 serve.py</p>'; });
 </script>
