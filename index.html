@@ -261,7 +261,7 @@ const hemi = new THREE.HemisphereLight(0xffffff, 0x555566, 1.6); scene.add(hemi)
 const key = new THREE.DirectionalLight(0xffffff, 2.2); scene.add(key, key.target);
 const clay = new THREE.MeshStandardMaterial({color:0xb8bcc6, roughness:.85});
 const sel = {box:null, mesh:null};
-let sun = null, ground = null, wash = null, meadow = null, minfo = null, fauna = null;
+let sun = null, ground = null, wash = null, meadow = null, minfo = null, fauna = null, insects = null;
 let model = null, grid = null, bbox = null, skel = null, home = null, meshes = [], cur = null, token = 0, view = 'lib';
 const flags = {wire:false, clay:false};
 
@@ -288,7 +288,7 @@ function clearSel(){ if(sel.box){ scene.remove(sel.box); sel.box = null; } sel.m
 function disposeModel(){
   stopPlayback();
   if(!model) return;
-  disposeObj(model); scene.remove(model, grid, bbox); if(skel){ scene.remove(skel); skel.dispose?.(); } if(fauna){ fauna.dispose(); fauna = null; } if(meadow){ meadow.dispose(); meadow = null; } minfo = null;
+  disposeObj(model); scene.remove(model, grid, bbox); if(skel){ scene.remove(skel); skel.dispose?.(); } if(insects){ insects.dispose(); insects = null; } if(fauna){ fauna.dispose(); fauna = null; } if(meadow){ meadow.dispose(); meadow = null; } minfo = null;
   if(sun){ scene.remove(sun, sun.target, ground, wash); wash.material.map.dispose(); wash.material.dispose(); ground.material.dispose(); sun = ground = wash = null; }
   model = grid = bbox = skel = null; meshes = []; clearSel();
 }
@@ -369,7 +369,7 @@ $('#vol').oninput = e => { if(T.audio) T.audio.volume = +e.target.value; };
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   if(view !== 'viewer') return;
-  tick(dt); controls.update(); meadow?.update(performance.now() / 1000, camera); fauna?.update(dt, camera);
+  tick(dt); controls.update(); meadow?.update(performance.now() / 1000, camera); fauna?.update(dt, camera); insects?.update(performance.now() / 1000);
   key.position.copy(camera.position).add(new THREE.Vector3(1,2,1)); key.target.position.copy(controls.target);
   sel.box?.update();
   renderer.render(scene, camera);
@@ -633,12 +633,12 @@ async function thumbQueue(){
   $('#status').textContent = '';
 }
 
-window.mv = {THREE, renderer, scene, frame, controls, camera, get meadow(){ return meadow; }, get fauna(){ return fauna; }, get meshes(){ return meshes; }, get cur(){ return cur; }};   // console handle for debugging
+window.mv = {THREE, renderer, scene, frame, controls, camera, get meadow(){ return meadow; }, get fauna(){ return fauna; }, get insects(){ return insects; }, get meshes(){ return meshes; }, get cur(){ return cur; }};   // console handle for debugging
 
 // ---------- scenery backdrop: shan-shui-inf (MIT, see shanshui-LICENSE.txt) ----------
 // The engine runs in a hidden iframe (it overrides Math.random). Its generated chunks are regrouped by depth into 5 layers that
 // get their own parallax, blur and haze, so the scenery has real distance. The nearest layer is drawn OVER the model's feet.
-const MEADOW_DEF = {height:50, density:70, wind:45, speed:50, gust:35, dir:35, dry:25, rough:35, sun:42, flowers:70, weeds:70, leaves:60, fall:60, clouds:45, wildlife:45};
+const MEADOW_DEF = {height:50, density:70, wind:45, speed:50, gust:35, dir:35, dry:25, rough:35, sun:42, flowers:70, weeds:70, leaves:60, fall:60, clouds:45, wildlife:45, insects:55};
 const SC_DEF = {meadow:{...MEADOW_DEF}, on:false, kind:'mountain', seed:'', zoom:1.3, v:0, parallax:40, mist:55, dblur:2, fore:60, shadow:45, sepia:25, hue:0, bright:100, contrast:100, sat:100, light:100};
 const SC = {...SC_DEF, meadow:{...MEADOW_DEF}}; try{ Object.assign(SC, JSON.parse(localStorage.getItem('scene') || '{}')); }catch(e){}
 SC.meadow = {...MEADOW_DEF, ...SC.meadow};                // fill in params added since the settings were saved
@@ -649,7 +649,7 @@ const PRESETS = {Ink:{sat:0,sepia:0,bright:100,contrast:110,hue:0}, Paper:{sat:7
   Dusk:{sepia:40,hue:-20,bright:70,contrast:110,sat:90}, Mist:{mist:90,dblur:4,bright:112,contrast:75,sat:60,sepia:15,hue:0}};
 const MSLIDERS = [['height','Grass height',0,100,1],['density','Density',5,100,1],['wind','Wind',0,100,1],['speed','Wind speed',0,100,1],['gust','Gusts',0,100,1],['dir','Wind direction',0,360,5],
   ['dry','Dryness',0,100,1],['rough','Terrain relief',0,100,1],['sun','Sun height',3,80,1],
-  ['flowers','Wildflowers',0,100,1],['weeds','Weeds',0,100,1],['leaves','Fallen leaves',0,100,1],['fall','Drifting leaves',0,100,1],['clouds','Clouds',0,100,1],['wildlife','Wildlife (animals, birds)',0,100,1]];
+  ['flowers','Wildflowers',0,100,1],['weeds','Weeds',0,100,1],['leaves','Fallen leaves',0,100,1],['fall','Drifting leaves',0,100,1],['clouds','Clouds',0,100,1],['wildlife','Wildlife (animals, birds)',0,100,1],['insects','Insects (low sun = fireflies)',0,100,1]];
 const BANDS = [[-1e9,300],[300,400],[400,500],[500,620],[620,1e9]], PAR = [.08,.22,.42,.7,1.1], BLUR = [1,.7,.4,.15,0], HAZE = [.8,.55,.35,.15], LW0 = 4200, LH0 = 700;
 let LW = LW0, LH = LH0, lyEls = [], hzEls = [];
 const sceneSave = () => { try{ localStorage.setItem('scene', JSON.stringify(SC)); }catch(e){} };
@@ -707,11 +707,16 @@ function layersBuild(){
 ssi.onload = ssiLoaded;
 async function meadowApply(){                           // the 3D meadow lives only while Scene is on, kind = Meadow and a model is mounted
   const want = () => SC.on && SC.kind === 'meadow' && model && minfo;
-  if(!want()){ if(fauna){ fauna.dispose(); fauna = null; } if(meadow){ meadow.dispose(); meadow = null; hemi.color.set(0xffffff); hemi.groundColor.set(0x555566); } return; }
+  if(!want()){ if(insects){ insects.dispose(); insects = null; } if(fauna){ fauna.dispose(); fauna = null; } if(meadow){ meadow.dispose(); meadow = null; hemi.color.set(0xffffff); hemi.groundColor.set(0x555566); } return; }
   if(meadow) return;
   const {createMeadow} = await import('./meadow.js');
   if(meadow || !want()) return;
-  meadow = createMeadow({scene, span:minfo.span, center:minfo.center, seed:SC.seed || '1', params:SC.meadow}); meadowSun(); sceneApply(); faunaApply();
+  meadow = createMeadow({scene, span:minfo.span, center:minfo.center, seed:SC.seed || '1', params:SC.meadow}); meadowSun(); sceneApply(); faunaApply(); insectsApply();
+}
+async function insectsApply(){                         // butterflies, dragonflies, fireflies
+  if(!meadow || !SC.meadow.insects){ if(insects){ insects.dispose(); insects = null; } return; }
+  if(!insects){ const {Insects} = await import('./insects.js'); if(insects || !meadow) return; insects = new Insects({scene, meadow, span:minfo.span, center:minfo.center, seed:SC.seed || '1', level:SC.meadow.insects}); }
+  insects.setLevel(SC.meadow.insects); insects.setNight(1 - Math.min(1, Math.max(0, (SC.meadow.sun - 3) / 11)));
 }
 async function faunaApply(){                           // wildlife (animals + birds) lives inside the meadow
   if(!meadow || !SC.meadow.wildlife){ if(fauna){ fauna.dispose(); fauna = null; } return; }
@@ -769,8 +774,9 @@ $('#scenePanel').addEventListener('input', e => {
   if(e.target.dataset.m){                               // meadow parameter
     const k = e.target.dataset.m; SC.meadow[k] = +e.target.value; sceneSave();
     if(k === 'wildlife'){ faunaApply(); return; }
-    if(k === 'rough'){ clearTimeout(window.__rt); window.__rt = setTimeout(() => { fauna?.dispose(); fauna = null; meadow?.dispose(); meadow = null; meadowApply(); }, 250); }
-    else if(meadow){ meadow.setParams(SC.meadow); meadowSun(); }
+    if(k === 'insects'){ insectsApply(); return; }
+    if(k === 'rough'){ clearTimeout(window.__rt); window.__rt = setTimeout(() => { insects?.dispose(); insects = null; fauna?.dispose(); fauna = null; meadow?.dispose(); meadow = null; meadowApply(); }, 250); }
+    else if(meadow){ meadow.setParams(SC.meadow); meadowSun(); if(k === 'sun') insectsApply(); }
     return;
   }
   const k = e.target.dataset.k; if(!k) return;
@@ -778,7 +784,7 @@ $('#scenePanel').addEventListener('input', e => {
 });
 $('#scenePanel').addEventListener('click', e => {
   const t = e.target;
-  const reseed = () => { SC.on = true; sceneSave(); if(SC.kind === 'meadow'){ fauna?.dispose(); fauna = null; meadow?.dispose(); meadow = null; meadowApply(); } else ssiLoad(); };
+  const reseed = () => { SC.on = true; sceneSave(); if(SC.kind === 'meadow'){ insects?.dispose(); insects = null; fauna?.dispose(); fauna = null; meadow?.dispose(); meadow = null; meadowApply(); } else ssiLoad(); };
   if(t.id === 'scGo'){ SC.seed = $('#seed').value || SC.seed; reseed(); }
   else if(t.id === 'scDice'){ SC.seed = String(Math.floor(Math.random()*1e6)); const sd = $('#seed'); if(sd) sd.value = SC.seed; reseed(); }
   else if(t.id === 'scL' || t.id === 'scR'){ try{ ssi.contentWindow.xcroll(t.id === 'scL' ? -300 : 300); layersBuild(); }catch(err){} }
