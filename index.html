@@ -50,8 +50,12 @@ header h1{font-size:15px;margin:0 8px 0 0}
 #center{display:flex;flex-direction:column;min-width:0;min-height:0}
 #stage{position:relative;flex:1;min-height:0}
 #stage canvas.gl{position:absolute;inset:0;z-index:1;width:100%;height:100%}
-#back{position:absolute;inset:0;overflow:hidden;z-index:0;background:#f1e9d6}
-#ssi{position:absolute;left:0;top:0;width:3100px;height:820px;border:0;transform-origin:0 0;pointer-events:none}
+#back{position:absolute;inset:0;overflow:hidden;z-index:0;background:#fff}
+#ssi{display:none}
+.ly{position:absolute;left:0;top:0;transform-origin:0 0;pointer-events:none;will-change:transform}
+.hz{position:absolute;inset:0;background:#fff;pointer-events:none}
+#paper{position:absolute;inset:0;background:#f1e9d6;mix-blend-mode:multiply;pointer-events:none}
+#fore{position:absolute;inset:0;z-index:2;overflow:hidden;pointer-events:none;mix-blend-mode:multiply;-webkit-mask-image:linear-gradient(to top,#000 0,#000 14%,transparent 50%);mask-image:linear-gradient(to top,#000 0,#000 14%,transparent 50%)}
 #scenePanel{position:absolute;top:10px;right:10px;z-index:4;width:270px;max-height:calc(100% - 20px);overflow:auto;background:#1b1e24f2;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 #scenePanel label{display:flex;align-items:center;gap:8px;margin:5px 0;color:var(--dim)}
 #scenePanel label span{width:84px;flex:none}#scenePanel input[type=range]{flex:1;accent-color:var(--acc)}
@@ -117,7 +121,7 @@ h3:first-child{margin-top:0}
 
 <div id="viewer" hidden>
   <div id="center">
-    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf backdrop"></iframe></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="load" hidden></div><canvas id="viz" width="1200" height="120" hidden></canvas>
+    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="load" hidden></div><canvas id="viz" width="1200" height="120" hidden></canvas>
       <div id="hint">drag = rotate · right-drag / shift-drag = move · wheel = zoom · click = pick mesh · double-click = focus</div></div>
     <div id="gallery"></div>
     <div id="tr" hidden>
@@ -243,6 +247,7 @@ const stage = $('#stage');
 const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true, alpha:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.domElement.className = 'gl'; stage.prepend(renderer.domElement);
 const scene = new THREE.Scene(); scene.background = new THREE.Color('#14161a');
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), .04).texture;  // lets metallic materials reflect something
@@ -253,6 +258,7 @@ const hemi = new THREE.HemisphereLight(0xffffff, 0x555566, 1.6); scene.add(hemi)
 const key = new THREE.DirectionalLight(0xffffff, 2.2); scene.add(key, key.target);
 const clay = new THREE.MeshStandardMaterial({color:0xb8bcc6, roughness:.85});
 const sel = {box:null, mesh:null};
+let sun = null, ground = null, wash = null;
 let model = null, grid = null, bbox = null, skel = null, home = null, meshes = [], cur = null, token = 0, view = 'lib';
 const flags = {wire:false, clay:false};
 
@@ -279,7 +285,8 @@ function clearSel(){ if(sel.box){ scene.remove(sel.box); sel.box = null; } sel.m
 function disposeModel(){
   stopPlayback();
   if(!model) return;
-  disposeObj(model); scene.remove(model, grid, bbox); if(skel){ scene.remove(skel); skel.dispose?.(); } model = grid = bbox = skel = null; meshes = []; clearSel();
+  disposeObj(model); scene.remove(model, grid, bbox); if(skel){ scene.remove(skel); skel.dispose?.(); } if(sun){ scene.remove(sun, sun.target, ground, wash); wash.material.map.dispose(); wash.material.dispose(); ground.material.dispose(); sun = ground = wash = null; }
+  model = grid = bbox = skel = null; meshes = []; clearSel();
 }
 
 // ---------- transport: animation clips + audio, one timeline ----------
@@ -378,6 +385,19 @@ function mount(obj){
   const nBones = meshes.reduce((n, m) => n + (m.isSkinnedMesh ? m.skeleton.bones.length : 0), 0);
   if(nBones){ skel = new THREE.SkeletonHelper(model); skel.material.depthTest = false; skel.visible = $('#bSkel').classList.contains('on'); scene.add(skel); }
   $('#bSkel').hidden = !nBones;
+  // grounding for the scenery backdrop: fixed sun with a soft shadow on an invisible floor, plus an ink-wash blob under the feet
+  const c = box.getCenter(new THREE.Vector3());
+  sun = new THREE.DirectionalLight(0xfff0d8, 2.2); sun.position.set(c.x + span*1.4, box.max.y + span*1.6, c.z + span*.9); sun.target.position.copy(c);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.normalBias = span*.002;
+  Object.assign(sun.shadow.camera, {left:-span*1.4, right:span*1.4, top:span*1.4, bottom:-span*1.4, near:span*.1, far:span*6}); sun.shadow.camera.updateProjectionMatrix();
+  ground = new THREE.Mesh(new THREE.PlaneGeometry(span*10, span*10), new THREE.ShadowMaterial({color:0x2a2418}));
+  ground.rotation.x = -Math.PI/2; ground.position.set(c.x, box.min.y + span*.001, c.z); ground.receiveShadow = true;
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g2 = cv.getContext('2d'), gr = g2.createRadialGradient(64,64,0,64,64,64);
+  gr.addColorStop(0,'rgba(34,28,20,.9)'); gr.addColorStop(.5,'rgba(34,28,20,.35)'); gr.addColorStop(1,'rgba(34,28,20,0)'); g2.fillStyle = gr; g2.fillRect(0,0,128,128);
+  wash = new THREE.Mesh(new THREE.PlaneGeometry(span*1.5, span*1.5), new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cv), transparent:true, depthWrite:false}));
+  wash.rotation.x = -Math.PI/2; wash.position.set(c.x, box.min.y + span*.002, c.z);
+  meshes.forEach(m => m.castShadow = true);
+  scene.add(sun, sun.target, ground, wash); sceneApply();
   frame(box); home = {pos:camera.position.clone(), tgt:controls.target.clone(), near:camera.near, far:camera.far};
   $('#load').hidden = true; setupTransport(cur, obj); inspector(size);
 }
@@ -491,7 +511,7 @@ $('#bIn').onclick = () => zoom(.8); $('#bOut').onclick = () => zoom(1.25);
 toggle('bRot', on => controls.autoRotate = on);
 toggle('bWire', on => { flags.wire = on; applyMode(); });
 toggle('bClay', on => { flags.clay = on; applyMode(); });
-toggle('bGrid', on => grid && (grid.visible = on));
+toggle('bGrid', on => grid && (grid.visible = on && !SC.on));
 toggle('bBox', on => bbox && (bbox.visible = on));
 toggle('bSkel', on => skel && (skel.visible = on));
 toggle('bInsp', on => { $('#viewer').classList.toggle('noinsp', !on); resize(); });
@@ -599,41 +619,65 @@ async function thumbQueue(){
 
 window.mv = {THREE, frame, controls, camera, get meshes(){ return meshes; }, get cur(){ return cur; }};   // console handle for debugging
 
-// ---------- scenery backdrop: shan-shui-inf (MIT, see shanshui-LICENSE.txt) in an iframe so its Math.random override stays out of three.js ----------
-const SC_DEF = {on:false, seed:'', zoom:1.3, v:0, parallax:40, sepia:25, hue:0, bright:100, contrast:100, sat:100, blur:0, light:100};
+// ---------- scenery backdrop: shan-shui-inf (MIT, see shanshui-LICENSE.txt) ----------
+// The engine runs in a hidden iframe (it overrides Math.random). Its generated chunks are regrouped by depth into 5 layers that
+// get their own parallax, blur and haze, so the scenery has real distance. The nearest layer is drawn OVER the model's feet.
+const SC_DEF = {on:false, seed:'', zoom:1.3, v:0, parallax:40, mist:55, dblur:2, fore:60, shadow:45, sepia:25, hue:0, bright:100, contrast:100, sat:100, light:100};
 const SC = {...SC_DEF}; try{ Object.assign(SC, JSON.parse(localStorage.getItem('scene') || '{}')); }catch(e){}
-const SLIDERS = [['zoom','Zoom',.8,3,.05],['v','Vertical',-300,300,5],['parallax','Parallax',0,100,1],['sepia','Warmth',0,100,1],['hue','Hue',-180,180,1],
-  ['bright','Brightness',40,160,1],['contrast','Contrast',40,160,1],['sat','Colour',0,200,1],['blur','Mist blur',0,8,.5],['light','Model light',20,220,5]];
-const PRESETS = {Ink:{sat:0,sepia:0,bright:100,contrast:110,hue:0,blur:0}, Paper:{sat:70,sepia:35,bright:100,contrast:100,hue:0,blur:0},
-  Dusk:{sepia:40,hue:-20,bright:70,contrast:110,sat:90,blur:0}, Mist:{blur:3,bright:112,contrast:75,sat:60,sepia:15,hue:0}};
+const SLIDERS = [['zoom','Zoom',.8,3,.05],['v','Vertical',-300,300,5],['parallax','Parallax',0,100,1],['mist','Distance haze',0,100,1],['dblur','Depth blur',0,8,.5],
+  ['fore','Foreground ink',0,100,1],['shadow','Ground shadow',0,100,1],['sepia','Warmth',0,100,1],['hue','Hue',-180,180,1],['bright','Brightness',40,160,1],
+  ['contrast','Contrast',40,160,1],['sat','Colour',0,200,1],['light','Model light',20,220,5]];
+const PRESETS = {Ink:{sat:0,sepia:0,bright:100,contrast:110,hue:0}, Paper:{sat:70,sepia:35,bright:100,contrast:100,hue:0},
+  Dusk:{sepia:40,hue:-20,bright:70,contrast:110,sat:90}, Mist:{mist:90,dblur:4,bright:112,contrast:75,sat:60,sepia:15,hue:0}};
+const BANDS = [[-1e9,300],[300,400],[400,500],[500,620],[620,1e9]], PAR = [.08,.22,.42,.7,1.1], BLUR = [1,.7,.4,.15,0], HAZE = [.8,.55,.35,.15], LW = 4200, LH = 700;
+let lyEls = [], hzEls = [];
 const sceneSave = () => { try{ localStorage.setItem('scene', JSON.stringify(SC)); }catch(e){} };
+const ssi = $('#ssi'), back = $('#back'), fore = $('#fore');
 function ssiLoad(){ if(!SC.seed) SC.seed = String(Math.floor(Math.random()*1e6)); ssi.src = `shanshui.html?seed=${encodeURIComponent(SC.seed)}`; const sd = $('#seed'); if(sd) sd.value = SC.seed; }
-const ssi = $('#ssi'), back = $('#back');
-ssi.onload = () => {                                             // hide the engine's own UI, make it a clean paper backdrop
-  try{ const d = ssi.contentDocument, st = d.createElement('style');
-    st.textContent = '#SETTING,#SOURCE_BTN,#L,#R{display:none!important} html,body{overflow:hidden!important;margin:0;background:#f1e9d6!important} table{border:0!important}';
-    d.head.appendChild(st); }catch(e){}
+function layersBuild(){
+  let M; try{ M = ssi.contentWindow.MEM; }catch(e){}
+  if(!M?.chunks?.length) return;
+  const x0 = M.cursx - 600;
+  const svg = ([a, b]) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} 0 ${LW} ${LH}" width="${LW}" height="${LH}">${M.chunks.filter(c => c.y >= a && c.y < b && c.x > x0 - M.cwid && c.x < x0 + LW + M.cwid).map(c => c.canv).join('')}</svg>`;
+  $('#lys').innerHTML = BANDS.slice(0,4).map((b, i) => `<div class="ly" data-i="${i}">${svg(b)}</div><div class="hz" data-i="${i}"></div>`).join('');
+  fore.innerHTML = `<div class="ly" data-i="4">${svg(BANDS[4])}</div>`;
+  lyEls = [...document.querySelectorAll('#back .ly, #fore .ly')]; hzEls = [...document.querySelectorAll('#back .hz')];
   sceneApply();
-};
+}
+ssi.onload = () => setTimeout(layersBuild, 50);
+function groundApply(){
+  if(!ground) return;
+  const on = SC.on && SC.shadow > 0;
+  ground.visible = wash.visible = sun.visible = on;
+  ground.material.opacity = .6 * SC.shadow/100; wash.material.opacity = .55 * SC.shadow/100;
+}
 function sceneApply(){
-  back.hidden = !SC.on;
+  back.hidden = fore.hidden = !SC.on;
   scene.background = SC.on ? null : new THREE.Color($('#bg').value);
-  hemi.intensity = 1.6 * (SC.on ? SC.light : 100) / 100; key.intensity = 2.2 * (SC.on ? SC.light : 100) / 100;
+  const k = (SC.on ? SC.light : 100) / 100; hemi.intensity = 1.6*k; key.intensity = 2.2*k;
   $('#bScene').classList.toggle('on', !$('#scenePanel').hidden);
+  groundApply();
+  if(grid) grid.visible = $('#bGrid').classList.contains('on') && !SC.on;   // a grid on top of a painting looks wrong
   if(!SC.on) return;
-  back.style.filter = `sepia(${SC.sepia}%) hue-rotate(${SC.hue}deg) brightness(${SC.bright}%) contrast(${SC.contrast}%) saturate(${SC.sat}%) blur(${SC.blur}px)`;
-  const w = stage.clientWidth, h = stage.clientHeight, sc = h/800*SC.zoom, az = controls.getAzimuthalAngle();
-  ssi.style.transform = `translate(${-(3000*sc - w)/2 - az*SC.parallax*3}px, ${(h - 800*sc)/2 + SC.v}px) scale(${sc})`;
+  const look = `sepia(${SC.sepia}%) hue-rotate(${SC.hue}deg) brightness(${SC.bright}%) contrast(${SC.contrast}%) saturate(${SC.sat}%)`;
+  back.style.filter = look; fore.style.filter = look; fore.style.opacity = SC.fore/100;
+  const w = stage.clientWidth, h = stage.clientHeight, sc = h/LH*SC.zoom, az = controls.getAzimuthalAngle(), pol = controls.getPolarAngle();
+  for(const el of lyEls){
+    const i = +el.dataset.i, bl = SC.dblur*BLUR[i];
+    el.style.transform = `translate(${-(LW*sc - w)/2 - az*SC.parallax*3*PAR[i]}px, ${(h - LH*sc)/2 + SC.v - (pol - Math.PI/2)*SC.parallax*2*PAR[i]}px) scale(${sc})`;
+    el.style.filter = bl ? `blur(${bl}px)` : '';
+  }
+  for(const el of hzEls) el.style.opacity = SC.mist/100 * HAZE[+el.dataset.i];
 }
 controls.addEventListener('change', () => SC.on && sceneApply());
 new ResizeObserver(() => SC.on && sceneApply()).observe(stage);
 function scenePanel(){
-  $('#scenePanel').innerHTML = `<label><input type="checkbox" id="scOn" ${SC.on?'checked':''}> <b style="color:var(--fg)">Shan-shui backdrop</b></label>
+  $('#scenePanel').innerHTML = `<label><input type="checkbox" id="scOn" ${SC.on?'checked':''}> <b style="color:var(--fg)">Shan-shui scenery</b></label>
     <div class="r"><input id="seed" value="${SC.seed}" title="seed: same seed = same landscape"><button id="scGo">Go</button><button id="scDice" title="random landscape">🎲</button></div>
     <div class="r"><button id="scL">◀ scroll</button><button id="scR">scroll ▶</button></div>
     <h4>Look</h4><div class="r">${Object.keys(PRESETS).map(k => `<button data-p="${k}">${k}</button>`).join('')}<button id="scReset">Reset</button></div>
     ${SLIDERS.map(([k,l,a,b,st]) => `<label><span>${l}</span><input type="range" data-k="${k}" min="${a}" max="${b}" step="${st}" value="${SC[k]}"></label>`).join('')}
-    <div style="color:var(--dim);font-size:11px;margin-top:6px">Landscape generated live by shan-shui-inf. "Shot" saves the model on a transparent background.</div>`;
+    <div style="color:var(--dim);font-size:11px;margin-top:6px">Five depth layers with parallax, haze and blur; the nearest ink drifts in front of the model; sun shadow + ink wash ground it. "Shot" saves the model on a transparent background.</div>`;
 }
 const scEnable = on => { SC.on = on; if(on && !ssi.src.includes('shanshui')) ssiLoad(); sceneSave(); sceneApply(); };
 $('#bScene').onclick = () => { const p = $('#scenePanel'); p.hidden = !p.hidden; if(!p.hidden) scenePanel(); sceneApply(); };
@@ -643,12 +687,12 @@ $('#scenePanel').addEventListener('input', e => {
   SC[k] = +e.target.value; if(!SC.on) scEnable(true); sceneSave(); sceneApply();
 });
 $('#scenePanel').addEventListener('click', e => {
-  const t = e.target, win = () => ssi.contentWindow;
+  const t = e.target;
   if(t.id === 'scGo'){ SC.seed = $('#seed').value || SC.seed; SC.on = true; ssiLoad(); sceneSave(); }
   else if(t.id === 'scDice'){ SC.seed = String(Math.floor(Math.random()*1e6)); SC.on = true; ssiLoad(); sceneSave(); }
-  else if(t.id === 'scL' || t.id === 'scR'){ try{ win().xcroll(t.id === 'scL' ? -300 : 300); }catch(err){} }
+  else if(t.id === 'scL' || t.id === 'scR'){ try{ ssi.contentWindow.xcroll(t.id === 'scL' ? -300 : 300); layersBuild(); }catch(err){} }
   else if(t.dataset.p){ Object.assign(SC, PRESETS[t.dataset.p]); scEnable(true); scenePanel(); }
-  else if(t.id === 'scReset'){ const keep = {on:SC.on, seed:SC.seed}; Object.assign(SC, SC_DEF, keep); sceneSave(); scenePanel(); sceneApply(); }
+  else if(t.id === 'scReset'){ const keep = {on:SC.on, seed:SC.seed}; Object.assign(SC, SC_DEF, keep); sceneSave(); scenePanel(); }
   sceneApply();
 });
 if(SC.on) ssiLoad();
