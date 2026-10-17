@@ -1,0 +1,104 @@
+import http.client, json, os, sys, tempfile, threading, unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import serve
+
+JPEG = b'\xff\xd8\xff\xe0' + b'0' * 64
+
+
+class ServeTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        t = Path(cls.tmp.name)
+        cls.assets, cls.dist = t / 'assets', t / 'dist'
+        (cls.assets / 'character-hero').mkdir(parents=True)
+        (cls.assets / 'character-hero' / 'hero.glb').write_bytes(bytes(range(100)))
+        (cls.assets / 'character-hero' / 'meta.json').write_text(json.dumps({'description': 'd', 'license': 'MIT', 'sensitive': True}))
+        (cls.assets / 'pose-sit').mkdir()
+        (cls.assets / 'pose-sit' / 'sit.fbx').write_bytes(b'fbx')
+        (cls.assets / 'adult.json').write_text('["pose-sit"]')
+        (cls.assets / 'fixes.json').write_text('{"pose-sit": {"*": "tex.png"}}')
+        (cls.assets / '.secret').write_text('nope')
+        (cls.assets / '.git').mkdir(); (cls.assets / '.git' / 'config').write_text('[core]')
+        cls.dist.mkdir(); (cls.dist / 'index.html').write_text('<h1>app</h1>')
+        (t / 'outside.txt').write_text('outside')
+        try: os.symlink(t / 'outside.txt', cls.assets / 'character-hero' / 'link.txt')
+        except (OSError, NotImplementedError): pass
+        serve.Handler.log_message = lambda *a: None
+        cls.srv = serve.make_server(cls.dist, cls.assets, port=0)
+        cls.port = cls.srv.server_address[1]
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown(); cls.srv.server_close(); cls.tmp.cleanup()
+
+    def req(self, method, path, headers=None, body=None, host=None):
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        c.putrequest(method, path, skip_host=True)          # raw path: no client-side normalisation of ..
+        c.putheader('Host', host or f'127.0.0.1:{self.port}')
+        for k, v in (headers or {}).items(): c.putheader(k, v)
+        c.endheaders(body)
+        r = c.getresponse(); data = r.read(); c.close()
+        return r, data
+
+    def post(self, path, body, headers=None):
+        return self.req('POST', path, {'Content-Length': str(len(body)), **(headers or {})}, body)[0]
+
+    def items(self):
+        return {i['id']: i for i in json.loads(self.req('GET', '/catalog.json')[1])['items']}
+
+    def test_index_and_catalog(self):
+        r, d = self.req('GET', '/'); self.assertEqual((r.status, d), (200, b'<h1>app</h1>'))
+        it = self.items()
+        self.assertEqual(set(it), {'character-hero', 'pose-sit'})
+        h = it['character-hero']
+        self.assertEqual((h['type'], h['name'], h['files']), ('character', 'hero', [{'n': 'hero.glb', 's': 100}]))
+        self.assertEqual((h['description'], h['license'], h['sensitive']), ('d', 'MIT', True))
+        self.assertEqual((it['pose-sit']['sensitive'], it['pose-sit']['textureOverrides']), (True, {'*': 'tex.png'}))
+
+    def test_asset_served(self):
+        r, d = self.req('GET', '/assets/character-hero/hero.glb')
+        self.assertEqual((r.status, d), (200, bytes(range(100))))
+
+    def test_not_served(self):
+        paths = ['/assets/../serve.py', '/assets/%2e%2e/serve.py', '/%2e%2e/serve.py', '/assets/%2e%2e%2fserve.py', '/../serve.py',
+                 '/assets/character-hero/..%2f..%2fserve.py', '/.git/config', '/assets/.git/config', '/assets/.secret', '/assets/.thumbs/..%2f.secret',
+                 '/assets/', '/assets', '/assets/character-hero/']
+        if (self.assets / 'character-hero' / 'link.txt').is_symlink(): paths.append('/assets/character-hero/link.txt')   # symlink leaving the asset folder
+        for p in paths: self.assertEqual(self.req('GET', p)[0].status, 404, p)
+
+    def test_bad_host(self):
+        for h in ['evil.example', f'evil.example:{self.port}', 'localhost.evil.com:%d' % self.port]:
+            self.assertIn(self.req('GET', '/catalog.json', host=h)[0].status, (400, 403), h)
+        self.assertEqual(self.req('GET', '/catalog.json', host=f'localhost:{self.port}')[0].status, 200)
+
+    def test_thumb_rules(self):
+        ok = {'X-O3DL': '1'}
+        self.assertEqual(self.post('/thumb/character-hero.jpg', JPEG).status, 403)                     # no header
+        self.assertEqual(self.post('/thumb/character-hero.jpg', b'x' * (2 << 20) + b'x', ok).status, 413)
+        self.assertEqual(self.post('/thumb/character-hero.jpg', b'GIF89a', ok).status, 415)
+        self.assertEqual(self.post('/thumb/nope.jpg', JPEG, ok).status, 404)
+        self.assertEqual(self.post('/thumb/..%2f..%2fx.jpg', JPEG, ok).status, 404)
+        for cl in ['-1', 'abc']:
+            self.assertEqual(self.req('POST', '/thumb/character-hero.jpg', {'X-O3DL': '1', 'Content-Length': cl}, None)[0].status, 400, cl)
+        self.assertEqual(self.post('/thumb/character-hero.jpg', JPEG, ok).status, 204)
+        self.assertEqual(self.items()['character-hero']['thumb'], 'assets/.thumbs/character-hero.jpg')
+        r, d = self.req('GET', '/assets/.thumbs/character-hero.jpg')
+        self.assertEqual((r.status, d), (200, JPEG))
+        self.assertEqual(self.req('GET', '/assets/.thumbs/')[0].status, 404)
+
+    def test_range(self):
+        u = '/assets/character-hero/hero.glb'
+        r, d = self.req('GET', u, {'Range': 'bytes=10-19'})
+        self.assertEqual((r.status, d, r.getheader('Content-Range')), (206, bytes(range(10, 20)), 'bytes 10-19/100'))
+        r, d = self.req('GET', u, {'Range': 'bytes=-5'}); self.assertEqual((r.status, d, r.getheader('Content-Range')), (206, bytes(range(95, 100)), 'bytes 95-99/100'))
+        r, d = self.req('GET', u, {'Range': 'bytes=90-'}); self.assertEqual((r.status, r.getheader('Content-Range')), (206, 'bytes 90-99/100'))
+        r, d = self.req('GET', u, {'Range': 'bytes=100-'}); self.assertEqual((r.status, r.getheader('Content-Range')), (416, 'bytes */100'))
+        r, d = self.req('GET', u, {'Range': 'bytes=500-600'}); self.assertEqual((r.status, r.getheader('Content-Range')), (416, 'bytes */100'))
+
+
+if __name__ == '__main__':
+    unittest.main()
