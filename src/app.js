@@ -103,8 +103,13 @@ async function fixTextures(obj, it){
     });
   }
   await Promise.all(jobs);
-  for(const o of meshes) for(const m of [].concat(o.material)) for(const k of ['map','normalMap','bumpMap','roughnessMap','metalnessMap','aoMap','emissiveMap','alphaMap','specularMap'])
-    if(m[k] && !m[k].image){ m[k] = null; m.needsUpdate = true; }
+  for(const o of meshes) for(const m of [].concat(o.material)){
+    for(const k of ['map','normalMap','bumpMap','roughnessMap','metalnessMap','aoMap','emissiveMap','alphaMap','specularMap'])
+      if(m[k] && !m[k].image){ m[k] = null; m.needsUpdate = true; }
+    // FBX/OBJ exporters often write Phong with white specular and shininess 0: the highlight then covers the whole surface and
+    // washes the model to white. No one authors that on purpose, so treat it as a matte surface with a faint, tight highlight.
+    if(m.isMeshPhongMaterial && m.shininess < 2 && !m.specularMap){ m.specular.multiplyScalar(.04); m.shininess = 12; m.needsUpdate = true; }
+  }
 }
 const fetchModelRetry = async (it, file, onProg) => {   // a dropped connection mid-download shouldn't kill the load
   for(let i = 0;; i++){
@@ -144,7 +149,8 @@ new ResizeObserver(resize).observe(stage);
 
 function frame(box, keepAngle){
   const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
-  const d = Math.max(size.x, size.y, size.z) / (2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)) * 1.5 || 1;
+  const t = Math.tan(THREE.MathUtils.degToRad(camera.fov)/2) * Math.min(1, camera.aspect);   // the narrower of the vertical and horizontal fields of view, so portrait screens don't crop the model
+  const d = Math.max(size.x, size.y, size.z) / (2*t) * 1.5 || 1;
   const dir = keepAngle ? camera.position.clone().sub(controls.target).normalize() : new THREE.Vector3(.5,.25,1).normalize();
   camera.position.copy(c).addScaledVector(dir, d); controls.target.copy(c);
   camera.near = d/200; camera.far = d*200; camera.updateProjectionMatrix(); controls.update();
