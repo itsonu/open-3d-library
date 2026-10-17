@@ -23,7 +23,11 @@ First public version.
 - `npm run catalog` to regenerate `public/catalog.json` from `public/assets/<type>-<name>/meta.json`.
 - Nine example assets under CC0, CC BY 4.0 or public-domain terms, listed in `ASSETS.md`.
 - MIT licence, third-party notices, and tests for `serve.py`.
-- Contributing guide, code of conduct, security policy, issue and pull request templates, and docs for the architecture and file formats.
+- Contributing guide, code of conduct, security policy, issue and pull request templates, and docs for the architecture, file formats and performance.
+- A private local collection: `serve.py --local-assets DIR` (`npm run start:local`) shows assets you must not publish, with a Local badge. They are never written into the public catalogue. `npm run check:private` fails if anything from `local-assets/` is ever tracked.
+- Browser smoke tests (Playwright, `npm run test:e2e`), CI on GitHub Actions, and a GitHub Pages deploy workflow.
+- README with screenshots, and `npm run screenshots` to regenerate them.
+- The `procedural-world-craft` Claude Code skill (`.claude/skills/`): the method, verified lessons and benchmarking protocol used to build the meadow.
 
 ### Changed
 
@@ -32,6 +36,10 @@ First public version.
 - Sources moved to `src/`; pages that run in iframes moved to `public/vendor/`.
 - `serve.py` was rewritten as an optional server.
 - FBX files with broken blend-shape data now load through a local loader that skips morph targets.
+- Texture repair matches Substance-style image sets (`_Base_color`, `_Normal_OpenGL`, `_Roughness`, `_Metallic`, `_Mixed_AO`) to materials by material and mesh name.
+- Models are framed to the narrower field of view, so they are no longer cropped on portrait screens.
+- Phong materials exported with a white specular and zero shininess no longer wash out to white.
+- Animal fur and feather layers scale with the animal's size on screen and are skipped off screen (about 8 ms faster with five animals at 1280×720 on the reference machine; see `docs/performance.md`). Fog is anchored to the scene, so nearby animals and ground stay clear.
 
 ### Removed
 
@@ -42,3 +50,4 @@ First public version.
 
 - `serve.py` listens on loopback only by default, checks the `Host` header, never serves dotfiles (except generated thumbnails), resolves real paths so symlinks cannot escape the served folders, and caps thumbnail uploads at 2 MB and JPEG only.
 - Thumbnail uploads require a custom request header, so cross-site form posts are rejected.
+- All catalogue, model and file names are HTML-escaped wherever they appear, and generated markup has no inline event handlers. Models opened from disk cannot make network requests for textures: unmatched texture URLs resolve to a blank image.

@@ -80,7 +80,7 @@ npm run test:e2e   # browser smoke tests (Playwright)
 npm run catalog    # rebuild public/catalog.json after adding an example
 ```
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, project layout, the asset policy and how to send a change. [docs/architecture.md](docs/architecture.md) explains how the app is organised.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, project layout, the asset policy and how to send a change. [docs/architecture.md](docs/architecture.md) explains how the app is organised, and [docs/performance.md](docs/performance.md) has measured frame times and the benchmark method.
 
 The repository also ships a Claude Code skill, [`.claude/skills/procedural-world-craft`](.claude/skills/procedural-world-craft/README.md), with the method, verified lessons and benchmarking protocol used to build and tune the procedural meadow.
 
