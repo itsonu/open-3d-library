@@ -9,13 +9,25 @@
 <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-cube" viewBox="0 0 16 16"><path d="M8 1.5 2.5 4.5v7L8 14.5l5.5-3v-7zM2.5 4.5 8 7.5l5.5-3M8 7.5v7"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 16 16"><path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 16 16"><path d="M5 4h9M5 8h9M5 12h9M2 4h.5M2 8h.5M2 12h.5"/></symbol>
+  <symbol id="i-open" viewBox="0 0 16 16"><path d="M2 4h4l1.5 1.5H14V12.5H2z"/></symbol>
+</svg>
 <header id="hLib">
-  <h1>Open 3D Library</h1>
-  <span id="chips"></span>
-  <button id="bOpenLib" title="Open files or a folder (O)">Open…</button>
-  <input id="q" placeholder="Search…  ( / )" style="width:200px">
-  <label class="sp" style="color:var(--dim)">size <input id="cw" type="range" min="140" max="360" value="200" style="padding:0;vertical-align:middle"></label>
-  <span id="status"></span>
+  <div class="brand"><svg class="i logo"><use href="#i-cube"/></svg><h1>Open 3D Library</h1></div>
+  <div class="search"><svg class="i"><use href="#i-search"/></svg><input id="q" type="search" aria-label="Search assets" aria-keyshortcuts="/" placeholder="Search…  ( / )"></div>
+  <span id="status" role="status"></span>
+  <label id="cwl" class="size">Size <input id="cw" type="range" min="140" max="360" value="200"></label>
+  <div class="seg" role="radiogroup" aria-label="Library layout">
+    <label title="Grid view"><input type="radio" name="lay" value="grid" checked><span><svg class="i"><use href="#i-grid"/></svg><span class="sr">Grid</span></span></label>
+    <label title="List view"><input type="radio" name="lay" value="list"><span><svg class="i"><use href="#i-list"/></svg><span class="sr">List</span></span></label>
+  </div>
+  <button id="bOpenLib" title="Open files or a folder (O)"><svg class="i"><use href="#i-open"/></svg>Open…</button>
+  <div class="bar"><div id="chips" role="group" aria-label="Filter by type"></div>
+    <label class="sort">Sort <select id="sort"><option value="name">Name</option><option value="type">Type</option><option value="size">Size (largest first)</option></select></label></div>
 </header>
 <header id="hView" hidden>
   <button id="bBack" title="Esc">← Library</button>
@@ -38,7 +50,7 @@
 </header>
 
 <div id="notice" role="status" hidden><span></span><button id="nClose" title="Dismiss this message">Dismiss</button></div>
-<div id="lib"></div>
+<main id="lib"></main>
 
 <div id="viewer" hidden>
   <div id="center">

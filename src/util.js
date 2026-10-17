@@ -6,6 +6,15 @@ export const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', 
 // A CSS url("...") token; quotes, backslashes and newlines in the value are escaped. Use esc() on top when it goes into an HTML attribute.
 export const cssUrl = u => `url("${String(u).replace(/["\\\n\r\f]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' ')}")`;
 
+// ---------- library labels ----------
+const TYPE_LABEL = {character:'Characters', animal:'Animals', material:'Materials', nature:'Nature', test:'Test files', outfit:'Outfits', pose:'Poses', reference:'Reference images', motion:'Motion', local:'Opened files'};
+export const typeLabel = t => TYPE_LABEL[t] || String(t).replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+// Short card badge for item.license: '' when there is none, 'Licence: see details' unless it is exactly one well-known licence.
+export const licenseBadge = l => {
+  const s = String(l ?? '').trim();
+  return !s ? '' : /^cc0([- ]1\.0)?$/i.test(s) ? 'CC0' : /^cc[- ]by([- ]\d(\.\d)?)?$/i.test(s) ? 'CC BY' : /^public domain\b[^+;,]*$/i.test(s) ? 'Public domain' : 'Licence: see details';
+};
+
 export const ext = n => String(n).split('.').pop().toLowerCase();
 
 // The file a dropped/selected set opens with: glb > gltf > fbx > obj > vmd (first in list order on ties).

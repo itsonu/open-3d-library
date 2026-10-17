@@ -5,13 +5,13 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
-import {esc, cssUrl, ext, pickMain, buildBlobs, resolveBlob, texBlocked, planTextures, BLANK_PNG} from './util.js';
+import {esc, cssUrl, ext, pickMain, buildBlobs, resolveBlob, texBlocked, planTextures, typeLabel, licenseBadge, BLANK_PNG} from './util.js';
 
 const $ = s => document.querySelector(s);
-const LABEL = {character:'Characters', outfit:'Outfits & hair', pose:'Poses', reference:'2D references', motion:'Motion'};
 const VIEW = ['glb','gltf','fbx','obj'], IMG = ['png','jpg','jpeg','webp','gif','bmp'], AUD = ['wav','mp3','ogg','m4a'];
 const url = (it, n) => it.local ? (it.blobs.get(n.toLowerCase()) || BLANK_PNG) : `assets/${encodeURIComponent(it.id)}/${encodeURIComponent(n)}`;
-const typeLabel = it => it.local ? 'Opened file' : LABEL[it.type] || it.type;
+const itemType = it => it.local ? 'Opened file' : typeLabel(it.type);
+const totalSize = it => it.files.reduce((n, f) => n + (f.s || 0), 0);
 const mb = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.max(1,Math.round(b/1e3))+' KB';
 const safeBase = u => { if(/^data:/i.test(u)) return ''; const b = String(u || '').split('?')[0].split('/').pop(); try{ return decodeURIComponent(b); }catch(e){ return b; } };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -297,7 +297,7 @@ function open(id){
   if(it.sensitive && passed !== id){ setView('lib'); askAge(id); return; }
   setView('viewer'); cur = it; token++; disposeModel(); $('#err').hidden = true;
   $('#bPrev').disabled = $('#bNext').disabled = !!it.local;
-  $('#title').textContent = `${typeLabel(it)} / ${it.name}`;
+  $('#title').textContent = `${itemType(it)} / ${it.name}`;
   document.title = `${it.name} · Open 3D Library`;
   const models = it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b) => VIEW.indexOf(ext(a.n)) - VIEW.indexOf(ext(b.n)));
   const imgs = it.files.filter(f => IMG.includes(ext(f.n)));
@@ -451,29 +451,39 @@ function thumbOf(it){
 function card(it){
   const m = pickModel(it), th = thumbOf(it);
   const tag = m ? ext(m.n) : it.files.some(f => AUD.includes(ext(f.n))) ? 'audio' : it.type==='reference' ? 'images' : ext(it.files.find(f => /blend|max|vmd/.test(ext(f.n)))?.n || it.files[0]?.n || '');
-  const ph = m ? '' : tag.toUpperCase();
+  const ph = m ? '' : tag.toUpperCase(), lic = licenseBadge(it.license);
   const ad = it.sensitive;                  // thumbnails of these stay blurred always
-  return `<div class="card ${ad ? 'adult' : ''}" data-id="${esc(it.id)}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${esc(it.id)}" ${th ? `style="--b:${esc(cssUrl(th))}"` : ''}>${th ? `<img loading="lazy" src="${esc(th)}" alt="">` : `<span class="ph">${esc(ph)}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
-    <div class="meta"><b title="${esc(it.name)}">${esc(it.name)}</b><span>${esc(typeLabel(it))} · ${esc(tag)}</span></div></div>`;
+  return `<a class="card ${ad ? 'adult' : ''}" href="#${esc(encodeURIComponent(it.id))}" data-id="${esc(it.id)}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${esc(it.id)}" ${th ? `style="--b:${esc(cssUrl(th))}"` : ''}>${th ? `<img loading="lazy" src="${esc(th)}" alt="">` : `<span class="ph">${esc(ph)}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
+    <div class="meta"><b title="${esc(it.name)}">${esc(it.name)}</b><span class="sub"><span>${esc(itemType(it))}</span><span>${esc(tag.toUpperCase())}</span><span>${esc(mb(totalSize(it)))}</span></span><span class="lic" ${it.license ? `title="${esc(it.license)}"` : ''}>${esc(lic)}</span></div></a>`;
 }
+let layout = 'grid', sort = 'name';
+const BY_NAME = (a, b) => a.name.localeCompare(b.name, 'en', {numeric: true});
+const SORTS = {name: BY_NAME, type: (a, b) => typeLabel(a.type).localeCompare(typeLabel(b.type)) || BY_NAME(a, b), size: (a, b) => totalSize(b) - totalSize(a) || BY_NAME(a, b)};
+const LIST_HEAD = '<div class="lh" aria-hidden="true"><span></span><span>Name</span><span>Type</span><span>Format</span><span>Size</span><span>Licence</span></div>';
 function renderLib(){
   libDirty = false;
   const q = $('#q').value.trim().toLowerCase(), st = $('#lib').scrollTop;
-  $('#chips').innerHTML = ['all',...Object.keys(LABEL)].map(t => `<button class="chip ${filter===t?'on':''}" data-t="${esc(t)}">${esc(t==='all'?'All':LABEL[t])}</button>`).join(' ');
-  let out = locals.length ? `<h2>Opened files · ${locals.length}</h2><div class="grid">${locals.map(card).join('')}</div>` : '';   // this session only
-  for(const t of Object.keys(LABEL)){
-    if(filter!=='all' && filter!==t) continue;
-    const items = lib.filter(i => i.type===t && (i.name+' '+t).toLowerCase().includes(q));
-    if(items.length) out += `<h2>${esc(LABEL[t])} · ${items.length}</h2><div class="grid">${items.map(card).join('')}</div>`;
+  const types = [...new Set(lib.map(i => i.type))].sort((a, b) => typeLabel(a).localeCompare(typeLabel(b)));
+  if(filter !== 'all' && !types.includes(filter)) filter = 'all';
+  $('#chips').innerHTML = types.length ? [['all', 'All', lib.length], ...types.map(t => [t, typeLabel(t), lib.filter(i => i.type === t).length])]
+    .map(([t, l, n]) => `<button class="chip" data-t="${esc(t)}" aria-pressed="${filter === t}">${esc(l)} <span class="n">${n}</span></button>`).join('') : '';
+  const section = (h, list) => `<h2>${esc(h)} · ${list.length}</h2><div class="${layout}">${layout === 'list' ? LIST_HEAD : ''}${list.map(card).join('')}</div>`;
+  let out = locals.length ? section('Opened files', locals) : '';   // this session only
+  const items = lib.filter(i => (filter === 'all' || i.type === filter) && (i.name + ' ' + typeLabel(i.type)).toLowerCase().includes(q)).sort(SORTS[sort]);
+  if(items.length){
+    if(sort === 'type') for(const t of types){ const g = items.filter(i => i.type === t); if(g.length) out += section(typeLabel(t), g); }
+    else out += section(filter === 'all' ? 'All assets' : typeLabel(filter), items);
   }
-  if(!out) out = lib.length ? '<p style="color:var(--dim)">Nothing matches.</p>' : '<div class="empty"><p>No assets in the library yet.</p><button data-open>Open…</button><p>Drop files or a folder here</p></div>';
+  if(!out) out = lib.length ? '<p class="muted">Nothing matches.</p>' : '<div class="empty"><p>No assets in the library yet.</p><button data-open>Open…</button><p>Drop files or a folder here</p></div>';
   $('#lib').innerHTML = out; $('#lib').scrollTop = st;
   $('#lib').querySelectorAll('.th img').forEach(i => i.complete && i.classList.add('ld'));
 }
 $('#lib').addEventListener('load', e => e.target.classList?.add('ld'), true);          // load/error don't bubble: capture them on the container
 $('#gallery').addEventListener('error', e => { const i = e.target; if(i.dataset?.full && i.getAttribute('src') !== i.dataset.full) i.src = i.dataset.full; }, true);   // thumbnail missing -> the full image
-$('#chips').onclick = e => { const t = e.target.dataset.t; if(t){ filter = t; renderLib(); } };
-$('#lib').onclick = e => { if(e.target.closest('[data-open]')) return fileIn.click(); const c = e.target.closest('.card'); if(c) location.hash = c.dataset.id; };
+$('#chips').onclick = e => { const t = e.target.closest('[data-t]')?.dataset.t; if(t){ filter = t; renderLib(); $(`#chips [data-t="${CSS.escape(t)}"]`)?.focus(); } };
+$('#lib').onclick = e => { if(e.target.closest('[data-open]')) fileIn.click(); };
+$('#sort').onchange = e => { sort = e.target.value; renderLib(); };
+document.querySelectorAll('[name=lay]').forEach(r => r.onchange = () => { layout = r.value; $('#cwl').hidden = layout !== 'grid'; renderLib(); });
 $('#q').oninput = renderLib;
 $('#cw').oninput = e => document.documentElement.style.setProperty('--cw', e.target.value+'px');
 

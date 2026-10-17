@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {esc, cssUrl, pickMain, buildBlobs, resolveBlob, texBlocked, texRole, normName, planTextures, BLANK_PNG} from '../src/util.js';
+import {esc, cssUrl, pickMain, buildBlobs, resolveBlob, texBlocked, typeLabel, licenseBadge, texRole, normName, planTextures, BLANK_PNG} from '../src/util.js';
 
 test('esc escapes & < > " \'', () => {
   assert.equal(esc(`<img src=x onerror="a('b')">&`), '&lt;img src=x onerror=&quot;a(&#39;b&#39;)&quot;&gt;&amp;');
@@ -76,4 +76,15 @@ test('planTextures: sets match material/mesh names, leftovers pair in name order
   assert.deepEqual(planTextures(['onlyone.png'], [{name: 'x', meshes: []}], true), [{map: 'onlyone.png'}]);
   // nothing to go on with unequal counts: no guessing
   assert.deepEqual(planTextures(names, [{name: 'a', meshes: []}, {name: 'b', meshes: []}], false), [null, null]);
+});
+
+test('typeLabel: known labels, title-cased fallback', () => {
+  assert.equal(typeLabel('test'), 'Test files'); assert.equal(typeLabel('reference'), 'Reference images');
+  assert.equal(typeLabel('hard-surface_prop'), 'Hard Surface Prop');
+});
+test('licenseBadge: CC0, CC BY, public domain, otherwise see details, nothing without a licence', () => {
+  assert.equal(licenseBadge('CC0-1.0'), 'CC0'); assert.equal(licenseBadge('CC-BY-4.0'), 'CC BY');
+  assert.equal(licenseBadge('Public domain (author dedication)'), 'Public domain');
+  assert.equal(licenseBadge('CC0-1.0 (model) + CC-BY-4.0 (rig)'), 'Licence: see details'); assert.equal(licenseBadge('CC-BY-SA-4.0'), 'Licence: see details');
+  assert.equal(licenseBadge(''), ''); assert.equal(licenseBadge(undefined), '');
 });
