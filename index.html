@@ -11,12 +11,14 @@
 <header id="hLib">
   <h1>Motion Library</h1>
   <span id="chips"></span>
+  <button id="bOpenLib" title="Open files or a folder (O)">Open…</button>
   <input id="q" placeholder="Search…  ( / )" style="width:200px">
   <label class="sp" style="color:var(--dim)">size <input id="cw" type="range" min="140" max="360" value="200" style="padding:0;vertical-align:middle"></label>
   <span id="status"></span>
 </header>
 <header id="hView" hidden>
   <button id="bBack" title="Esc">← Library</button>
+  <button id="bOpen" title="Open files or a folder (O)">Open…</button>
   <button id="bPrev" title="[">‹</button><button id="bNext" title="]">›</button>
   <span id="title"></span>
   <select id="fsel" hidden></select>
@@ -34,11 +36,12 @@
   <button id="bInsp" class="on" title="Inspector (I)">Inspect</button>
 </header>
 
+<div id="notice" role="status" hidden><span></span><button id="nClose" title="Dismiss">Dismiss</button></div>
 <div id="lib"></div>
 
 <div id="viewer" hidden>
   <div id="center">
-    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="wash"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="load" hidden></div><canvas id="viz" width="1200" height="120" hidden></canvas>
+    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="wash"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="err" role="alert" hidden><div><p id="errMsg"></p><p id="errFile"></p><button id="eBack">Back to library</button> <button id="eOpen">Open another file…</button></div></div><div id="load" hidden></div><canvas id="viz" width="1200" height="120" hidden></canvas>
       <div id="hint">drag = rotate · right-drag / shift-drag = move · wheel = zoom · click = pick mesh · double-click = focus</div></div>
     <div id="gallery"></div>
     <div id="tr" hidden>
@@ -54,6 +57,9 @@
 </div>
 <div id="lb"><img alt=""></div>
 <div id="gate"><div><h2>18+ content</h2><p>This item may contain nudity.<br>Are you 18 or older?</p><button id="gYes" class="on">Yes, I'm 18+</button><button id="gNo">No, go back</button></div></div>
+
+<input id="fileIn" type="file" multiple hidden accept=".glb,.gltf,.bin,.fbx,.obj,.mtl,.vmd,.wav,.mp3,.ogg,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tga">
+<div id="drop" hidden>Drop files or a folder to open</div>
 
 <script type="module" src="/src/app.js"></script>
 </body>

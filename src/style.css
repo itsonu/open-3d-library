@@ -82,3 +82,12 @@ h3:first-child{margin-top:0}
 .files a{color:var(--acc);text-decoration:none;overflow-wrap:anywhere}
 .files div{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
 .files small{color:var(--dim);flex:none}
+
+/* open files, notices, errors */
+#notice{display:flex;gap:10px;align-items:center;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--line);color:var(--dim);white-space:pre-line}
+#notice span{flex:1}
+#drop{position:fixed;inset:12px;z-index:30;display:flex;align-items:center;justify-content:center;background:#000b;border:3px dashed var(--acc);border-radius:14px;font-size:20px;pointer-events:none}
+#err{position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
+#err div,.empty{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px 28px;max-width:420px}
+#err p{margin:0 0 10px;overflow-wrap:anywhere}#err #errFile{color:var(--dim)}
+.empty{margin:12vh auto;text-align:center;color:var(--dim)}

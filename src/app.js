@@ -5,14 +5,15 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
-import {planTextures} from './util.js';
+import {esc, cssUrl, ext, pickMain, buildBlobs, resolveBlob, texBlocked, planTextures, BLANK_PNG} from './util.js';
 
 const $ = s => document.querySelector(s);
 const LABEL = {character:'Characters', outfit:'Outfits & hair', pose:'Poses', reference:'2D references', motion:'Motion'};
-const VIEW = ['glb','gltf','fbx','obj'], IMG = ['png','jpg','jpeg','webp','gif'], AUD = ['wav','mp3','ogg','m4a'];
-const ext = n => n.split('.').pop().toLowerCase();
-const url = (it, n) => `assets/${encodeURIComponent(it.id)}/${encodeURIComponent(n)}`;
+const VIEW = ['glb','gltf','fbx','obj'], IMG = ['png','jpg','jpeg','webp','gif','bmp'], AUD = ['wav','mp3','ogg','m4a'];
+const url = (it, n) => it.local ? (it.blobs.get(n.toLowerCase()) || BLANK_PNG) : `assets/${encodeURIComponent(it.id)}/${encodeURIComponent(n)}`;
+const typeLabel = it => it.local ? 'Opened file' : LABEL[it.type] || it.type;
 const mb = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.max(1,Math.round(b/1e3))+' KB';
+const safeBase = u => { if(/^data:/i.test(u)) return ''; const b = String(u || '').split('?')[0].split('/').pop(); try{ return decodeURIComponent(b); }catch(e){ return b; } };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmt = t => `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
 const pickModel = it => it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b) => VIEW.indexOf(ext(a.n)) - VIEW.indexOf(ext(b.n)))[0];
@@ -25,13 +26,19 @@ const patchedFBX = () => fbxPatched ??= import('./loaders/FBXLoaderNoMorph.js').
 function fetchModel(it, file, onProg){
   return new Promise((resolve, rej) => {
     let obj = null, idle = false, fired = false;      // resolve once the model AND its textures have loaded
-    const fin = () => { if(obj && idle && !fired){ fired = true; fixTextures(obj, it).then(() => resolve(obj)); } };
-    const res = o => { obj = o; fin(); setTimeout(() => { idle = true; fin(); }, 20000); };   // 20 s safety net
+    const fin = () => { if(obj && idle && !fired){ fired = true; fixTextures(obj, it).catch(e => console.warn('texture repair failed', e)).then(() => resolve(obj)); } };
+    const res = o => { obj = o; if(!pend) idle = true; fin(); setTimeout(() => { idle = true; fin(); }, 20000); };   // 20 s safety net
     const norm = n => n.toLowerCase().replace(/\.[^.]+$/,'').replace(/[^a-z0-9]/g,'');   // 'Material #18_Diffuse.png' ~ 'Material__18_Diffuse.jpeg'
     const names = new Map(it.files.filter(f => IMG.includes(ext(f.n))).map(f => [norm(f.n), f.n]));
     const mgr = new THREE.LoadingManager(() => { idle = true; fin(); });
+    // FileLoader piggy-backs a request that is already in flight (e.g. the preview generator loading the same file) without telling the
+    // manager, so such a load would never go idle: count what the manager actually started.
+    let pend = 0; const is = mgr.itemStart, ie = mgr.itemEnd; mgr.itemStart = u => { pend++; is.call(mgr, u); }; mgr.itemEnd = u => { pend--; ie.call(mgr, u); };
     mgr.setURLModifier(u => {
-      if(/^(blob|data):/.test(u)) return u;
+      if(/^data:/i.test(u)) return u;
+      if(texBlocked(u)) return BLANK_PNG;                  // never request .exr/.tif/.psd
+      if(it.local) return resolveBlob(it.blobs, u);        // dropped files only: anything unmatched becomes a blank pixel, never a network request
+      if(/^blob:/.test(u)) return u;
       const base = decodeURIComponent(u.split('?')[0]).split(/[\\/]/).pop(), k = norm(base);
       if(names.has(k)) return url(it, names.get(k));
       return u;
@@ -167,7 +174,7 @@ function setupTransport(it, obj){
   if(clips.length){
     T.mixer = new THREE.AnimationMixer(obj);
     T.actions = clips.map(c => T.mixer.clipAction(c));
-    $('#tClip').innerHTML = clips.map((c,i) => `<option value="${i}">${c.name || 'clip '+(i+1)} (${fmt(c.duration)})</option>`).join('');
+    $('#tClip').innerHTML = clips.map((c,i) => `<option value="${i}">${esc(c.name || 'clip '+(i+1))} (${fmt(c.duration)})</option>`).join('');
     $('#tClip').hidden = clips.length < 2; selectClip(0);
   }
   const af = it.files.find(f => AUD.includes(ext(f.n)));
@@ -267,31 +274,41 @@ function mount(obj){
 }
 function loadModel(it, file){
   const my = ++token;
-  disposeModel(); $('#msg').textContent = ''; $('#load').hidden = false; $('#load').textContent = 'Loading…'; $('#load').style.setProperty('--b', cur.thumb ? `url('${cur.thumb}')` : 'none');
+  disposeModel(); $('#msg').textContent = ''; $('#err').hidden = true; $('#load').hidden = false; $('#load').textContent = 'Loading…'; $('#load').style.setProperty('--b', cur.thumb ? cssUrl(cur.thumb) : 'none');
   fetchModelRetry(it, file, e => { if(my===token && !model && e.lengthComputable) $('#load').textContent = `Loading… ${Math.round(e.loaded/e.total*100)}%`; })
     .then(o => { if(my===token) mount(o); else disposeObj(o); })
-    .catch(e => { if(my===token){ $('#load').hidden = true; $('#msg').textContent = 'Could not load this file.\n'+(e?.message||e)+'\n(is serve.py still running?)'; } });
+    .catch(e => { if(my===token) showError(file, e, it); });
+}
+// load failure: a panel in the viewer with the reason and a way out (the loading overlay never stays up)
+function showError(file, e, it){
+  stopPlayback(); $('#load').hidden = true; $('#msg').textContent = '';
+  const why = e?.message || e?.type || String(e);
+  $('#errMsg').textContent = `Couldn't open ${file.n}: ${why}` + (it?.local ? '' : '  (is serve.py still running?)');
+  $('#errFile').textContent = file.n; $('#err').hidden = false;
 }
 
 function open(id){
-  const it = lib.find(i => i.id===id); if(!it){ location.hash = ''; return; }
+  const it = [...locals, ...lib].find(i => i.id===id);
+  if(!it){ setView('lib'); history.replaceState(null, '', location.pathname + location.search); showNotice(`Asset not found: ${id}`); return; }
+  $('#notice').hidden = true;
   if(it.sensitive && passed !== id){ setView('lib'); askAge(id); return; }
-  setView('viewer'); cur = it; token++; disposeModel();
-  $('#title').textContent = `${LABEL[it.type]||it.type} / ${it.name}`;
+  setView('viewer'); cur = it; token++; disposeModel(); $('#err').hidden = true;
+  $('#bPrev').disabled = $('#bNext').disabled = !!it.local;
+  $('#title').textContent = `${typeLabel(it)} / ${it.name}`;
   document.title = `${it.name} · Motion Library`;
   const models = it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b) => VIEW.indexOf(ext(a.n)) - VIEW.indexOf(ext(b.n)));
   const imgs = it.files.filter(f => IMG.includes(ext(f.n)));
   const fsel = $('#fsel'), g = $('#gallery');
-  fsel.hidden = models.length < 2; fsel.innerHTML = models.map(f => `<option>${f.n}</option>`).join('');
+  fsel.hidden = models.length < 2; fsel.innerHTML = models.map(f => `<option>${esc(f.n)}</option>`).join('');
   const vmds = it.files.filter(f => ext(f.n)==='vmd').sort((a,b) => /cnv/i.test(a.n) - /cnv/i.test(b.n));
   const mocap = !models.length && vmds.length > 0;           // a VMD with no model: play it on the built-in mannequin (vmdplayer.js)
-  if(mocap){ fsel.hidden = vmds.length < 2; fsel.innerHTML = vmds.map(f => `<option>${f.n}</option>`).join(''); }
+  if(mocap){ fsel.hidden = vmds.length < 2; fsel.innerHTML = vmds.map(f => `<option>${esc(f.n)}</option>`).join(''); }
   const is3d = models.length > 0 || mocap, isGal = !is3d && it.type==='reference' && imgs.length;
   $('#center').firstElementChild.style.display = isGal ? 'none' : ''; g.style.display = isGal ? 'grid' : 'none';
   ['bReset','bIn','bOut','bRot','bWire','bClay','bGrid','bBox','bg','bShot'].forEach(b => $('#'+b).disabled = !is3d);
   $('#load').hidden = true; $('#msg').textContent = ''; $('#bSkel').hidden = true;
   if(isGal){
-    g.innerHTML = imgs.map((f,i) => `<figure data-i="${i}"><img loading="lazy" src="${f.t || url(it,f.n)}" onerror="this.onerror=null;this.src='${url(it,f.n)}'"><figcaption>${f.n}</figcaption></figure>`).join('');
+    g.innerHTML = imgs.map((f,i) => `<figure data-i="${i}"><img loading="lazy" src="${esc(f.t || url(it,f.n))}" data-full="${esc(url(it,f.n))}" alt=""><figcaption>${esc(f.n)}</figcaption></figure>`).join('');
     g.onclick = e => { const f = e.target.closest('figure'); if(f) lightbox(imgs.map(x => url(it,x.n)), +f.dataset.i); };
     inspector();
   } else if(mocap) loadMocap(it, vmds[0]);
@@ -316,10 +333,10 @@ async function vmdInfo(it){
 }
 function loadMocap(it, file){
   const my = ++token;
-  disposeModel(); $('#msg').textContent = ''; $('#load').hidden = false; $('#load').textContent = 'Reading motion…'; $('#load').style.setProperty('--b', 'none');
-  fetch(url(it, file.n)).then(r => r.arrayBuffer()).then(buf => import('./vmdplayer.js').then(m => m.buildMannequin(buf)))
+  disposeModel(); $('#msg').textContent = ''; $('#err').hidden = true; $('#load').hidden = false; $('#load').textContent = 'Reading motion…'; $('#load').style.setProperty('--b', 'none');
+  fetch(url(it, file.n)).then(r => { if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); }).then(buf => import('./vmdplayer.js').then(m => m.buildMannequin(buf)))
     .then(o => { if(my===token) mount(o); else disposeObj(o); })
-    .catch(e => { if(my===token){ $('#load').hidden = true; $('#msg').textContent = 'Could not read this motion.\n' + (e?.message||e); } });
+    .catch(e => { if(my===token) showError(file, e, it); });
 }
 $('#fsel').onchange = e => { const f = cur.files.find(f => f.n===e.target.value); ext(f.n)==='vmd' ? loadMocap(cur, f) : loadModel(cur, f); };
 
@@ -330,7 +347,7 @@ function inspector(size){
     let tris = 0, verts = 0; const mats = new Set(), tex = new Set();
     for(const m of meshes){
       const g = m.geometry; verts += g.attributes.position.count; tris += (g.index ? g.index.count : g.attributes.position.count)/3;
-      for(const mat of [].concat(m.userData.m0)){ mats.add(mat); Object.entries(mat).forEach(([k,v]) => v?.isTexture && tex.add(k+': '+(v.name || decodeURIComponent((v.image?.src||'').split('/').pop()) || 'embedded'))); }
+      for(const mat of [].concat(m.userData.m0)){ mats.add(mat); Object.entries(mat).forEach(([k,v]) => v?.isTexture && tex.add(k+': '+(v.name || cur.rev?.get(v.image?.src) || safeBase(v.image?.src) || 'embedded'))); }
     }
     const nBones = meshes.reduce((n, m) => n + (m.isSkinnedMesh ? m.skeleton.bones.length : 0), 0), clips = model.animations || [];
     const usedKeys = new Set([...tex].map(t => t.split(': ').slice(1).join(': ').toLowerCase().replace(/\.[^.]+$/,'').replace(/[^a-z0-9]/g,'')));
@@ -345,15 +362,15 @@ function inspector(size){
       <div class="row"><span class="k">Rig</span><span>${nBones ? nBones + ' bones' : 'none'}</span></div>
       <div class="row"><span class="k">Animations</span><span>${model.animations?.length || 0}</span></div>
       <div class="row"><span class="k">Size</span><span>${sz}</span></div>
-      ${clips.length ? `<h3>Animations <small>(click to play)</small></h3>${clips.map((c,i) => `<div class="mesh" data-clip="${i}"><span>▶ ${c.name || 'clip '+(i+1)}</span><small style="color:var(--dim)">${fmt(c.duration)}</small></div>`).join('')}`
+      ${clips.length ? `<h3>Animations <small>(click to play)</small></h3>${clips.map((c,i) => `<div class="mesh" data-clip="${i}"><span>▶ ${esc(c.name || 'clip '+(i+1))}</span><small style="color:var(--dim)">${fmt(c.duration)}</small></div>`).join('')}`
         : nBones ? '<div style="color:var(--dim);margin-top:8px">Rigged (use Bones to see the skeleton) but has no animation clips.</div>' : ''}
       <h3>Meshes <small>(click = select · tick = show)</small></h3><div id="meshes">${meshes.map((m,i) =>
-        `<div class="mesh" data-i="${i}"><input type="checkbox" checked data-v="${i}"><span title="${m.name}">${m.name||'mesh '+i}</span></div>`).join('')}</div>
+        `<div class="mesh" data-i="${i}"><input type="checkbox" checked data-v="${i}"><span title="${esc(m.name)}">${esc(m.name||'mesh '+i)}</span></div>`).join('')}</div>
       <h3>Selected</h3><div id="selinfo" style="color:var(--dim)">nothing</div>
-      <h3>Textures applied</h3><div style="color:var(--dim);word-break:break-all">${[...tex].join('<br>') || 'none'}</div>
-      ${unused.length ? `<h3>Image files not used by the model</h3><div style="color:var(--dim);word-break:break-all">${unused.join('<br>')}</div>` : ''}`;
+      <h3>Textures applied</h3><div style="color:var(--dim);word-break:break-all">${[...tex].map(esc).join('<br>') || 'none'}</div>
+      ${unused.length ? `<h3>Image files not used by the model</h3><div style="color:var(--dim);word-break:break-all">${unused.map(esc).join('<br>')}</div>` : ''}`;
   }
-  h += `<h3>Files</h3><div class="files">${cur.files.map(f => `<div><a href="${url(cur,f.n)}" download title="${f.n}">${f.n}</a><small>${mb(f.s)}</small></div>`).join('')}</div>`;
+  h += `<h3>Files</h3><div class="files">${cur.files.map(f => `<div><a href="${esc(url(cur,f.n))}" download title="${esc(f.n)}">${esc(f.n)}</a><small>${mb(f.s)}</small></div>`).join('')}</div>`;
   $('#inspBody').innerHTML = h;
 }
 $('#inspBody').addEventListener('click', e => {
@@ -368,9 +385,9 @@ function select(m){
   if(!m){ $('#selinfo') && ($('#selinfo').textContent = 'nothing'); return; }
   sel.box = new THREE.BoxHelper(m, 0xffd166); scene.add(sel.box);
   const g = m.geometry, mats = [].concat(m.userData.m0);
-  $('#selinfo').innerHTML = `<div class="row"><span class="k">Name</span><span>${m.name||'(unnamed)'}</span></div>
+  $('#selinfo').innerHTML = `<div class="row"><span class="k">Name</span><span>${esc(m.name||'(unnamed)')}</span></div>
     <div class="row"><span class="k">Triangles</span><span>${Math.round((g.index?g.index.count:g.attributes.position.count)/3).toLocaleString()}</span></div>
-    <div class="row"><span class="k">Material</span><span>${mats.map(x=>x.name||'(unnamed)').join(', ')}</span></div>`;
+    <div class="row"><span class="k">Material</span><span>${mats.map(x=>esc(x.name||'(unnamed)')).join(', ')}</span></div>`;
 }
 const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(); let down = null;
 const pick = e => { const r = renderer.domElement.getBoundingClientRect(); ptr.set((e.clientX-r.left)/r.width*2-1, -((e.clientY-r.top)/r.height)*2+1); ray.setFromCamera(ptr, camera); return ray.intersectObjects(meshes.filter(m=>m.visible), false)[0]; };
@@ -393,7 +410,7 @@ toggle('bInsp', on => { $('#viewer').classList.toggle('noinsp', !on); resize(); 
 $('#bg').onchange = () => sceneApply();
 $('#bShot').onclick = () => { renderer.render(scene, camera); renderer.domElement.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = (cur?.id||'shot')+'.png'; a.click(); }); };
 $('#bBack').onclick = () => location.hash = '';
-const step = d => { const i = lib.indexOf(cur), n = lib[(i+d+lib.length)%lib.length]; location.hash = n.id; };
+const step = d => { if(cur?.local || !lib.length) return; const i = lib.indexOf(cur), n = lib[(i+d+lib.length)%lib.length]; location.hash = n.id; };
 $('#bPrev').onclick = () => step(-1); $('#bNext').onclick = () => step(1);
 
 // ---------- lightbox ----------
@@ -409,16 +426,17 @@ lb.onpointerup = e => { drag = null; lb.style.cursor = 'grab'; if(!moved && e.ta
 lb.ondblclick = () => lbShow(lbI);
 
 // ---------- library (visual grid) ----------
-let lib = [], filter = 'all';
+let lib = [], filter = 'all', locals = [];
 let passed = null;                                          // the one item the user just confirmed; asked again next time
 function askAge(id){
   $('#gate').style.display = 'flex';
   $('#gYes').onclick = () => { passed = id; $('#gate').style.display = 'none'; open(id); };
   $('#gNo').onclick = () => { $('#gate').style.display = 'none'; location.hash = ''; };
 }
+let libDirty = false;
 function setView(v){
   view = v; $('#lib').hidden = $('#hLib').hidden = v!=='lib'; $('#viewer').hidden = $('#hView').hidden = v!=='viewer';
-  if(v==='lib'){ document.title = 'Motion Library'; disposeModel(); cur = null; passed = null; }
+  if(v==='lib'){ document.title = 'Motion Library'; disposeModel(); cur = null; passed = null; $('#err').hidden = true; if(libDirty) renderLib(); }
   resize();
 }
 function thumbOf(it){
@@ -431,24 +449,75 @@ function card(it){
   const tag = m ? ext(m.n) : it.files.some(f => AUD.includes(ext(f.n))) ? 'audio' : it.type==='reference' ? 'images' : ext(it.files.find(f => /blend|max|vmd/.test(ext(f.n)))?.n || it.files[0]?.n || '');
   const ph = m ? '' : tag.toUpperCase();
   const ad = it.sensitive;                  // thumbnails of these stay blurred always
-  return `<div class="card ${ad ? 'adult' : ''}" data-id="${it.id}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${it.id}" ${th ? `style="--b:url('${th}')"` : ''}>${th ? `<img loading="lazy" src="${th}" onload="this.classList.add('ld')">` : `<span class="ph">${ph}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
-    <div class="meta"><b title="${it.name}">${it.name}</b><span>${LABEL[it.type]||it.type} · ${tag}</span></div></div>`;
+  return `<div class="card ${ad ? 'adult' : ''}" data-id="${esc(it.id)}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${esc(it.id)}" ${th ? `style="--b:${esc(cssUrl(th))}"` : ''}>${th ? `<img loading="lazy" src="${esc(th)}" alt="">` : `<span class="ph">${esc(ph)}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
+    <div class="meta"><b title="${esc(it.name)}">${esc(it.name)}</b><span>${esc(typeLabel(it))} · ${esc(tag)}</span></div></div>`;
 }
 function renderLib(){
-  const q = $('#q').value.trim().toLowerCase();
-  $('#chips').innerHTML = ['all',...Object.keys(LABEL)].map(t => `<button class="chip ${filter===t?'on':''}" data-t="${t}">${t==='all'?'All':LABEL[t]}</button>`).join(' ');
-  let out = '';
+  libDirty = false;
+  const q = $('#q').value.trim().toLowerCase(), st = $('#lib').scrollTop;
+  $('#chips').innerHTML = ['all',...Object.keys(LABEL)].map(t => `<button class="chip ${filter===t?'on':''}" data-t="${esc(t)}">${esc(t==='all'?'All':LABEL[t])}</button>`).join(' ');
+  let out = locals.length ? `<h2>Opened files · ${locals.length}</h2><div class="grid">${locals.map(card).join('')}</div>` : '';   // this session only
   for(const t of Object.keys(LABEL)){
     if(filter!=='all' && filter!==t) continue;
     const items = lib.filter(i => i.type===t && (i.name+' '+t).toLowerCase().includes(q));
-    if(items.length) out += `<h2>${LABEL[t]} · ${items.length}</h2><div class="grid">${items.map(card).join('')}</div>`;
+    if(items.length) out += `<h2>${esc(LABEL[t])} · ${items.length}</h2><div class="grid">${items.map(card).join('')}</div>`;
   }
-  $('#lib').innerHTML = out || `<p style="color:var(--dim)">${lib.length ? 'Nothing matches.' : 'No assets yet — open a file or add examples'}</p>`;
+  if(!out) out = lib.length ? '<p style="color:var(--dim)">Nothing matches.</p>' : '<div class="empty"><p>No assets in the library yet.</p><button data-open>Open…</button><p>Drop files or a folder here</p></div>';
+  $('#lib').innerHTML = out; $('#lib').scrollTop = st;
+  $('#lib').querySelectorAll('.th img').forEach(i => i.complete && i.classList.add('ld'));
 }
+$('#lib').addEventListener('load', e => e.target.classList?.add('ld'), true);          // load/error don't bubble: capture them on the container
+$('#gallery').addEventListener('error', e => { const i = e.target; if(i.dataset?.full && i.getAttribute('src') !== i.dataset.full) i.src = i.dataset.full; }, true);   // thumbnail missing -> the full image
 $('#chips').onclick = e => { const t = e.target.dataset.t; if(t){ filter = t; renderLib(); } };
-$('#lib').onclick = e => { const c = e.target.closest('.card'); if(c) location.hash = c.dataset.id; };
+$('#lib').onclick = e => { if(e.target.closest('[data-open]')) return fileIn.click(); const c = e.target.closest('.card'); if(c) location.hash = c.dataset.id; };
 $('#q').oninput = renderLib;
 $('#cw').oninput = e => document.documentElement.style.setProperty('--cw', e.target.value+'px');
+
+// ---------- notices + opening local files (Open… button, `o`, drag-and-drop of files or folders) ----------
+const fileIn = $('#fileIn');
+const showNotice = t => { $('#notice span').textContent = t; $('#notice').hidden = false; };
+$('#nClose').onclick = () => $('#notice').hidden = true;
+$('#bOpenLib').onclick = $('#bOpen').onclick = $('#eOpen').onclick = () => fileIn.click();
+$('#eBack').onclick = () => location.hash = '';
+const SUPPORT = new Set([...VIEW, ...IMG, ...AUD, 'bin', 'mtl', 'vmd', 'tga']);
+const MAX_LOCAL = 5; let localN = 0;
+// files: [{path, file}] -> a transient item that lives only in this session (blob URLs, revoked when it falls out of the last 5)
+function openFiles(files){
+  const ok = files.filter(f => SUPPORT.has(ext(f.path))), main = pickMain(ok.map(f => ({n: f.path})));
+  if(!main){
+    const got = files.slice(0, 8).map(f => f.path).join(', ') + (files.length > 8 ? ` and ${files.length - 8} more` : '');
+    return showNotice(`No viewable file in this selection.\nSupported: GLB/glTF, FBX, OBJ+MTL, VMD motion.\nReceived: ${got || 'nothing'}`);
+  }
+  const urls = ok.map(f => ({path: f.path, url: URL.createObjectURL(f.file)}));
+  const tops = new Set(ok.map(f => f.path.includes('/') ? f.path.split('/')[0] : ''));
+  const it = {id: 'local-' + ++localN, type: 'local', name: tops.size === 1 && [...tops][0] || main.n.split('/').pop().replace(/\.[^.]+$/, ''),
+    files: ok.map(f => ({n: f.path, s: f.file.size})), local: true, blobs: buildBlobs(urls), rev: new Map(urls.map(u => [u.url, u.path]))};
+  locals.unshift(it);
+  while(locals.length > MAX_LOCAL) new Set(locals.pop().blobs.values()).forEach(u => URL.revokeObjectURL(u));
+  libDirty = true; thumbQueue(); location.hash = it.id;
+}
+fileIn.onchange = () => { openFiles([...fileIn.files].map(file => ({path: file.webkitRelativePath || file.name, file}))); fileIn.value = ''; };
+async function readDrop(dt){                                 // entries must be taken synchronously, before the first await
+  const ents = [...dt.items].map(i => i.webkitGetAsEntry?.()).filter(Boolean), out = []; let budget = 5000;
+  if(!ents.length) return [...dt.files].map(file => ({path: file.name, file}));
+  const walk = async en => {
+    if(budget-- <= 0) return;
+    if(en.isFile) out.push({path: en.fullPath.replace(/^\//, ''), file: await new Promise((r, j) => en.file(r, j))});
+    else for(const rd = en.createReader(), more = () => new Promise((r, j) => rd.readEntries(r, j)); ;){ const b = await more(); if(!b.length) break; for(const c of b) await walk(c); }
+  };
+  for(const en of ents) await walk(en);
+  return out;
+}
+let dragN = 0;
+const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+addEventListener('dragenter', e => { if(hasFiles(e)){ e.preventDefault(); dragN++; $('#drop').hidden = false; } });
+addEventListener('dragover', e => { if(hasFiles(e)){ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+addEventListener('dragleave', e => { if(hasFiles(e) && --dragN <= 0){ dragN = 0; $('#drop').hidden = true; } });
+addEventListener('drop', async e => {
+  if(!hasFiles(e)) return;
+  e.preventDefault(); dragN = 0; $('#drop').hidden = true;
+  try{ openFiles(await readDrop(e.dataTransfer)); }catch(err){ showNotice(`Couldn't read the dropped files: ${err?.message || err}`); }
+});
 
 // preview generator: renders each model once, posts the JPEG to serve.py so it is cached on disk
 let rig = null;
@@ -473,25 +542,29 @@ async function makeThumb(it){
     return await new Promise(res => r.domElement.toBlob(res, 'image/jpeg', .82));
   } finally { s.remove(obj); disposeObj(obj); }
 }
-async function thumbQueue(){
-  const todo = lib.filter(i => !thumbOf(i) && pickModel(i)).sort((a,b) => pickModel(a).s - pickModel(b).s);
+let tq = null; const tried = new Set();
+const thumbQueue = () => tq ??= makeThumbs().finally(() => tq = null);
+async function makeThumbs(){
   let n = 0;
-  for(const it of todo){
-    while(view==='viewer') await sleep(1000);          // stay out of the way while a model is open
-    $('#status').textContent = `making previews ${++n}/${todo.length}`;
+  for(;;){
+    const todo = [...locals, ...lib].filter(i => !tried.has(i) && !thumbOf(i) && pickModel(i)).sort((a,b) => pickModel(a).s - pickModel(b).s), it = todo[0];
+    if(!it) break;
+    tried.add(it);
+    while(view==='viewer' || location.hash.length > 1) await sleep(1000);          // stay out of the way while a model is open (or about to be)
+    $('#status').textContent = `making previews ${++n}/${n - 1 + todo.length}`;
     try{
       const blob = await makeThumb(it);
-      fetch(`thumb/${it.id}.jpg`, {method:'POST', headers:{'X-O3DL':'1'}, body:blob}).catch(() => {});
+      if(!it.local) fetch(`thumb/${it.id}.jpg`, {method:'POST', headers:{'X-O3DL':'1'}, body:blob}).catch(() => {});   // opened files stay in the browser
       it.thumb = URL.createObjectURL(blob);
-      const th = document.querySelector(`[data-th="${it.id}"]`);
-      if(th){ th.style.setProperty('--b', `url('${it.thumb}')`); th.replaceChildren(Object.assign(new Image(), {src:it.thumb, onload(){ this.classList.add('ld'); }})); }
-    }catch(e){ console.warn('preview failed', it.id, e); }
+      const th = document.querySelector(`[data-th="${CSS.escape(it.id)}"]`);
+      if(th){ th.style.setProperty('--b', cssUrl(it.thumb)); th.replaceChildren(Object.assign(new Image(), {src:it.thumb, onload(){ this.classList.add('ld'); }})); }
+    }catch(e){ console.warn('preview failed', it.id, e); const th = document.querySelector(`[data-th="${CSS.escape(it.id)}"]`); th?.classList.remove('q'); th?.querySelector('.gen')?.remove(); }
     await sleep(50);
   }
   $('#status').textContent = '';
 }
 
-window.mv = {THREE, renderer, scene, frame, controls, camera, get meadow(){ return meadow; }, get fauna(){ return fauna; }, get insects(){ return insects; }, get meshes(){ return meshes; }, get cur(){ return cur; }};   // console handle for debugging
+window.mv = {THREE, renderer, scene, frame, controls, camera, get meadow(){ return meadow; }, get fauna(){ return fauna; }, get insects(){ return insects; }, get meshes(){ return meshes; }, get cur(){ return cur; }, get locals(){ return locals; }, openFiles};   // console handle for debugging
 
 // ---------- scenery backdrop: shan-shui-inf (MIT, see shanshui-LICENSE.txt) ----------
 // The engine runs in a hidden iframe (it overrides Math.random). Its generated chunks are regrouped by depth into 5 layers that
@@ -523,8 +596,8 @@ function ssiLoad(){
 const clearLayers = () => { $('#lys').innerHTML = ''; fore.innerHTML = ''; lyEls = []; hzEls = []; };
 // all kinds fill #lys (far -> near) and #fore (nearest, drawn over the model) with .ly elements that sceneApply() moves for parallax
 function hazeAndLayers(layerHtml, foreHtml){
-  $('#lys').innerHTML = layerHtml.map((h, i) => `<div class="ly" data-i="${i + (layerHtml.length === 1 ? 2 : 0)}" style="width:${LW}px;height:${LH}px">${h}</div><div class="hz" data-i="${Math.min(i, 3)}"></div>`).join('');
-  fore.innerHTML = foreHtml ? `<div class="ly" data-i="4" style="width:${LW}px;height:${LH}px">${foreHtml}</div>` : '';
+  $('#lys').innerHTML = layerHtml.map((h, i) => `<div class="ly" data-i="${i + (layerHtml.length === 1 ? 2 : 0)}" style="width:${+LW}px;height:${+LH}px">${h}</div><div class="hz" data-i="${Math.min(i, 3)}"></div>`).join('');
+  fore.innerHTML = foreHtml ? `<div class="ly" data-i="4" style="width:${+LW}px;height:${+LH}px">${foreHtml}</div>` : '';
   lyEls = [...document.querySelectorAll('#back .ly, #fore .ly')]; hzEls = [...document.querySelectorAll('#back .hz')];
   sceneApply();
 }
@@ -618,12 +691,12 @@ controls.addEventListener('change', () => SC.on && sceneApply());
 new ResizeObserver(() => SC.on && sceneApply()).observe(stage);
 function scenePanel(){
   $('#scenePanel').innerHTML = `<label><input type="checkbox" id="scOn" ${SC.on?'checked':''}> <b style="color:var(--fg)">Shan-shui scenery</b></label>
-    <div class="r">${Object.entries(KINDS).map(([k, l]) => `<button data-kind="${k}" class="${SC.kind === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="r"><input id="seed" value="${SC.seed}" title="seed: same seed = same landscape"><button id="scGo">Go</button><button id="scDice" title="random landscape">🎲</button></div>
+    <div class="r">${Object.entries(KINDS).map(([k, l]) => `<button data-kind="${esc(k)}" class="${SC.kind === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
+    <div class="r"><input id="seed" value="${esc(SC.seed)}" title="seed: same seed = same landscape"><button id="scGo">Go</button><button id="scDice" title="random landscape">🎲</button></div>
     <div class="r"><button id="scL">◀ scroll</button><button id="scR">scroll ▶</button></div>
-    ${SC.kind === 'meadow' ? `<h4>Meadow</h4>${MSLIDERS.map(([k,l,a,b,st]) => `<label><span>${l}</span><input type="range" data-m="${k}" min="${a}" max="${b}" step="${st}" value="${SC.meadow[k]}"></label>`).join('')}<label><span>Model light</span><input type="range" data-k="light" min="20" max="220" step="5" value="${SC.light}"></label>`
-    : `<h4>Look</h4><div class="r">${Object.keys(PRESETS).map(k => `<button data-p="${k}">${k}</button>`).join('')}<button id="scReset">Reset</button></div>
-    ${SLIDERS.map(([k,l,a,b,st]) => `<label><span>${l}</span><input type="range" data-k="${k}" min="${a}" max="${b}" step="${st}" value="${SC[k]}"></label>`).join('')}`}
+    ${SC.kind === 'meadow' ? `<h4>Meadow</h4>${MSLIDERS.map(([k,l,a,b,st]) => `<label><span>${esc(l)}</span><input type="range" data-m="${esc(k)}" min="${a}" max="${b}" step="${st}" value="${esc(SC.meadow[k])}"></label>`).join('')}<label><span>Model light</span><input type="range" data-k="light" min="20" max="220" step="5" value="${esc(SC.light)}"></label>`
+    : `<h4>Look</h4><div class="r">${Object.keys(PRESETS).map(k => `<button data-p="${esc(k)}">${esc(k)}</button>`).join('')}<button id="scReset">Reset</button></div>
+    ${SLIDERS.map(([k,l,a,b,st]) => `<label><span>${esc(l)}</span><input type="range" data-k="${esc(k)}" min="${a}" max="${b}" step="${st}" value="${esc(SC[k])}"></label>`).join('')}`}
     <div style="color:var(--dim);font-size:11px;margin-top:6px">${SC.kind === 'meadow' ? 'Live 3D meadow: tufted grass, wildflowers, weeds, leaves, clouds. Wind-swept, parted by the model, real shadows. Same seed = same meadow.' : 'Five depth layers with parallax, haze and blur; the nearest ink drifts in front of the model; sun shadow + ink wash ground it. "Shot" saves the model on a transparent background.'}</div>`;
 }
 const scEnable = on => { SC.on = on; if(on && SC.kind !== 'meadow' && !ssi.getAttribute('src')) ssiLoad(); sceneSave(); sceneApply(); };
@@ -661,6 +734,7 @@ addEventListener('keydown', e => {
   if(e.key==='/' && document.activeElement!==$('#q') && view==='lib'){ e.preventDefault(); $('#q').focus(); return; }
   if(/INPUT|SELECT/.test(document.activeElement.tagName) && e.key!=='Escape') return;
   if(lb.style.display==='block'){ if(e.key==='Escape') lb.style.display='none'; if(e.key==='ArrowRight') lbShow(lbI+1); if(e.key==='ArrowLeft') lbShow(lbI-1); return; }
+  if(e.key.toLowerCase()==='o' && !e.metaKey && !e.ctrlKey && !e.altKey){ fileIn.click(); return; }
   if(view!=='viewer') return;
   const k = e.key.toLowerCase();
   if(e.key==='Escape') location.hash = '';
@@ -671,5 +745,6 @@ addEventListener('keydown', e => {
   else if(e.key==='ArrowRight' && T.dur) setTime(T.t+5); else if(e.key==='ArrowLeft' && T.dur) setTime(T.t-5);
 });
 
-fetch('catalog.json').then(r => r.json()).then(d => d.items || []).catch(() => [])
-  .then(d => { lib = d; renderLib(); route(); thumbQueue(); });
+fetch('catalog.json').then(r => { if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).then(d => Array.isArray(d?.items) ? d.items : [])
+  .then(d => [d, null], e => [[], e])
+  .then(([d, err]) => { lib = d; renderLib(); route(); if(err) showNotice(`Couldn't load catalog.json: ${err.message || err}`); thumbQueue(); });
