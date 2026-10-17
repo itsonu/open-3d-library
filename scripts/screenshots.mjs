@@ -54,7 +54,7 @@ try{
     await page.keyboard.press('Escape');            // close the Scene panel
     await page.waitForTimeout(6000);                // let grass, wildlife and clouds settle
   });
-  await shot('mobile-viewer.png', {width: 375, height: 812}, async page => { await open(page, 'material-sheen-chair'); for(let i = 0; i < 3; i++) await page.locator('#bOut').click(); await page.waitForTimeout(1000); }, {deviceScaleFactor: 2, isMobile: true, hasTouch: true});
+  await shot('mobile-viewer.png', {width: 375, height: 812}, async page => { await open(page, 'material-sheen-chair'); await page.waitForTimeout(1000); }, {deviceScaleFactor: 2, isMobile: true, hasTouch: true});
 } finally {
   await browser.close();
   await server.close();
