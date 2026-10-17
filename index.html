@@ -44,7 +44,7 @@
   </div>
   <button id="bOpenLib" title="Open files or a folder (O)"><svg class="i"><use href="#i-open"/></svg>Open…</button>
   <div class="bar"><div id="chips" role="group" aria-label="Filter by type"></div>
-    <label class="sort">Sort <select id="sort"><option value="name">Name</option><option value="type">Type</option><option value="size">Size (largest first)</option></select></label></div>
+    <label class="sort"><span>Sort</span> <select id="sort"><option value="name">Name</option><option value="type">Type</option><option value="size">Size (largest first)</option></select></label></div>
 </header>
 <header id="hView" hidden>
   <div class="tz tl">
@@ -104,7 +104,7 @@
   </div>
   <aside id="insp" aria-label="Inspector"><div class="sheet-h"><b>Details</b><button id="bDetX" class="ghost icon" title="Close details" aria-label="Close details"><svg class="i"><use href="#i-close"/></svg></button></div><div id="inspBody"></div></aside>
 </main>
-<div id="lb"><img alt=""></div>
+<div id="lb" role="dialog" aria-modal="true" aria-label="Image viewer (Esc to close)" tabindex="-1"><img alt=""></div>
 <dialog id="gate" aria-labelledby="gT"><div class="panel"><h2 id="gT">18+ content</h2><p>This item may contain nudity.<br>Are you 18 or older?</p><div class="btns"><button id="gYes" class="primary">Yes, I'm 18+</button><button id="gNo">No, go back</button></div></div></dialog>
 
 <input id="fileIn" type="file" multiple hidden accept=".glb,.gltf,.bin,.fbx,.obj,.mtl,.vmd,.wav,.mp3,.ogg,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tga">

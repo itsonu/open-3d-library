@@ -48,7 +48,7 @@ h1{font-size:var(--fs-4);font-weight:600}
 .search input{width:100%;padding-left:34px}
 header .size{display:flex;align-items:center;gap:var(--sp-2);color:var(--muted);margin-left:auto}
 header .size input{width:90px}
-.bar{flex:0 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-3);justify-content:space-between}
+.bar{flex:0 0 100%;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-3);justify-content:space-between}
 #chips{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
 .chip{border-radius:999px;min-height:28px;padding:2px var(--sp-3)}
 .chip .n{opacity:.8;font-variant-numeric:tabular-nums}
@@ -81,7 +81,7 @@ header .size input{width:90px}
 .meta b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .meta span{color:var(--muted);font-size:var(--fs-1)}
 .sub{display:flex;flex-wrap:wrap;column-gap:var(--sp-1)}
-.sub>span+span::before{content:'·';margin-right:var(--sp-1)}
+.sub>span:not(:last-child)::after{content:'·';margin-left:var(--sp-1)}
 .lic{align-self:flex-start;margin-top:var(--sp-1);border:1px solid var(--border-strong);border-radius:999px;padding:0 var(--sp-2);white-space:nowrap}
 .lic:empty{display:none}
 .card.adult .th img,.card.adult .th::before{filter:blur(30px) brightness(.7);transform:scale(1.2)}
@@ -97,13 +97,19 @@ header .size input{width:90px}
 .list .th .ph{font-size:var(--fs-1)}.list .th .gen{display:none}
 .list .badge{top:2px;left:2px;padding:0 4px;font-size:10px}
 .list .meta,.list .sub{display:contents}
-.list .sub>span+span::before{content:none}
+.list .sub>span::after{content:none}
 .list .lic{margin:0;align-self:center;justify-self:start;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .list .lic:empty{display:block;border:0}
+#status:empty{display:none}
 @media (max-width:640px){
+  .brand{order:1}#bOpenLib{order:2;margin-left:auto}.search{order:3;max-width:none}#hLib .seg{order:4}#status{order:5}.bar{order:6;flex-wrap:nowrap}
+  header .size{display:none}
+  #chips{flex:1;min-width:0;flex-wrap:nowrap;overflow-x:auto;padding:2px}.chip{flex:none}
+  .sort span{display:none}.sort select{max-width:110px}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .list .lh{display:none}
   .list .card{grid-template-columns:44px minmax(0,1fr)}
-  .list .meta{display:flex;grid-column:2;padding:0}.list .sub{display:flex}
+  .list .meta{display:flex;grid-column:2;padding:0}.list .sub{display:flex}.list .sub>span:not(:last-child)::after{content:'·'}.list .lic{align-self:flex-start}
   .list .th{grid-row:1}
 }
 

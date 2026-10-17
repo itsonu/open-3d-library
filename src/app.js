@@ -12,6 +12,8 @@ const VIEW = ['glb','gltf','fbx','obj'], IMG = ['png','jpg','jpeg','webp','gif',
 const url = (it, n) => it.local ? (it.blobs.get(n.toLowerCase()) || BLANK_PNG) : `assets/${encodeURIComponent(it.id)}/${encodeURIComponent(n)}`;
 const itemType = it => it.local ? 'Opened file' : typeLabel(it.type);
 const totalSize = it => it.files.reduce((n, f) => n + (f.s || 0), 0);
+// a url() inside a custom property resolves against the stylesheet, not the page: hand it an absolute URL
+const cssImg = u => cssUrl(new URL(u, document.baseURI).href);
 const mb = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.max(1,Math.round(b/1e3))+' KB';
 const safeBase = u => { if(/^data:/i.test(u)) return ''; const b = String(u || '').split('?')[0].split('/').pop(); try{ return decodeURIComponent(b); }catch(e){ return b; } };
 // toolbar helpers: disable a control with the reason as its tooltip (why = '' re-enables it and restores the original title)
@@ -279,7 +281,7 @@ function mount(obj){
 }
 function loadModel(it, file){
   const my = ++token;
-  disposeModel(); $('#msg').textContent = ''; $('#err').hidden = true; showLoad(`Loading ${file.n}`, cur.thumb ? cssUrl(cur.thumb) : 'none');
+  disposeModel(); $('#msg').textContent = ''; $('#err').hidden = true; showLoad(`Loading ${file.n}`, cur.thumb ? cssImg(cur.thumb) : 'none');
   fetchModelRetry(it, file, e => { if(my===token && !model && e.lengthComputable) loadPct(Math.round(e.loaded/e.total*100)); })
     .then(o => { if(my===token) mount(o); else disposeObj(o); })
     .catch(e => { if(my===token) showError(file, e, it); });
@@ -318,8 +320,9 @@ function open(id){
   $('#load').hidden = true; $('#msg').textContent = '';
   inspector();
   if(isGal){
-    g.innerHTML = imgs.map((f,i) => `<figure data-i="${i}"><img loading="lazy" src="${esc(f.t || url(it,f.n))}" data-full="${esc(url(it,f.n))}" alt=""><figcaption>${esc(f.n)}</figcaption></figure>`).join('');
+    g.innerHTML = imgs.map((f,i) => `<figure data-i="${i}" tabindex="0" role="button" aria-label="View ${esc(f.n)}"><img loading="lazy" src="${esc(f.t || url(it,f.n))}" data-full="${esc(url(it,f.n))}" alt=""><figcaption>${esc(f.n)}</figcaption></figure>`).join('');
     g.onclick = e => { const f = e.target.closest('figure'); if(f) lightbox(imgs.map(x => url(it,x.n)), +f.dataset.i); };
+    g.onkeydown = e => { if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); e.target.click(); } };
   } else if(mocap) loadMocap(it, vmds[0]);
   else if(is3d) loadModel(it, models[0]);
   else { setupTransport(it, null); vmdInfo(it); }
@@ -443,7 +446,7 @@ $('#bPrev').onclick = () => step(-1); $('#bNext').onclick = () => step(1);
 const lb = $('#lb'), lbImg = lb.querySelector('img'); let lbList = [], lbI = 0, S = {s:1,x:0,y:0};
 const lbApply = () => lbImg.style.transform = `translate(${S.x}px,${S.y}px) scale(${S.s}) translate(-50%,-50%)`;
 function lbShow(i){ lbI = (i+lbList.length)%lbList.length; lbImg.src = lbList[lbI]; S = {s:1,x:innerWidth/2,y:innerHeight/2}; lbImg.style.left = lbImg.style.top = '0'; lbApply(); }
-function lightbox(list, i){ lbList = list; lb.style.display = 'block'; lbShow(i); }
+function lightbox(list, i){ lbList = list; lb.style.display = 'block'; lbShow(i); lb.focus(); }
 lb.addEventListener('wheel', e => { e.preventDefault(); const f = e.deltaY<0 ? 1.15 : 1/1.15; S.x = e.clientX-(e.clientX-S.x)*f; S.y = e.clientY-(e.clientY-S.y)*f; S.s *= f; lbApply(); }, {passive:false});
 let drag = null, moved = false;
 lb.onpointerdown = e => { drag = [e.clientX-S.x, e.clientY-S.y]; moved = false; lb.setPointerCapture(e.pointerId); lb.style.cursor = 'grabbing'; };
@@ -476,7 +479,7 @@ function card(it){
   const tag = m ? ext(m.n) : it.files.some(f => AUD.includes(ext(f.n))) ? 'audio' : it.type==='reference' ? 'images' : ext(it.files.find(f => /blend|max|vmd/.test(ext(f.n)))?.n || it.files[0]?.n || '');
   const ph = m ? '' : tag.toUpperCase(), lic = licenseBadge(it.license);
   const ad = it.sensitive;                  // thumbnails of these stay blurred always
-  return `<a class="card ${ad ? 'adult' : ''}" href="#${esc(encodeURIComponent(it.id))}" data-id="${esc(it.id)}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${esc(it.id)}" ${th ? `style="--b:${esc(cssUrl(th))}"` : ''}>${th ? `<img loading="lazy" src="${esc(th)}" alt="">` : `<span class="ph">${esc(ph)}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
+  return `<a class="card ${ad ? 'adult' : ''}" href="#${esc(encodeURIComponent(it.id))}" data-id="${esc(it.id)}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${esc(it.id)}" ${th ? `style="--b:${esc(cssImg(th))}"` : ''}>${th ? `<img loading="lazy" src="${esc(th)}" alt="">` : `<span class="ph">${esc(ph)}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
     <div class="meta"><b title="${esc(it.name)}">${esc(it.name)}</b><span class="sub"><span>${esc(itemType(it))}</span><span>${esc(tag.toUpperCase())}</span><span>${esc(mb(totalSize(it)))}</span></span><span class="lic" ${it.license ? `title="${esc(it.license)}"` : ''}>${esc(lic)}</span></div></a>`;
 }
 let layout = 'grid', sort = 'name';
@@ -594,7 +597,7 @@ async function makeThumbs(){
       if(!it.local) fetch(`thumb/${it.id}.jpg`, {method:'POST', headers:{'X-O3DL':'1'}, body:blob}).catch(() => {});   // opened files stay in the browser
       it.thumb = URL.createObjectURL(blob);
       const th = document.querySelector(`[data-th="${CSS.escape(it.id)}"]`);
-      if(th){ th.style.setProperty('--b', cssUrl(it.thumb)); th.replaceChildren(Object.assign(new Image(), {src:it.thumb, onload(){ this.classList.add('ld'); }})); }
+      if(th){ th.style.setProperty('--b', cssImg(it.thumb)); th.replaceChildren(Object.assign(new Image(), {src:it.thumb, onload(){ this.classList.add('ld'); }})); }
     }catch(e){ console.warn('preview failed', it.id, e); const th = document.querySelector(`[data-th="${CSS.escape(it.id)}"]`); th?.classList.remove('q'); th?.querySelector('.gen')?.remove(); }
     await sleep(50);
   }
