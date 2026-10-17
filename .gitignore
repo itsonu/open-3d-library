@@ -4,11 +4,13 @@
 !/index.html
 !/serve.py
 !/README.md
-!/adult.json
-!/fixes.json
 !/vendor/
 !/vendor/**
 !/vmdplayer.js
 !/meadow.js
 !/fauna.js
 !/insects.js
+!/LICENSE
+!/THIRD_PARTY_NOTICES.md
+!/docs/
+!/docs/**
