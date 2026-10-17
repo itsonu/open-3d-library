@@ -87,6 +87,8 @@ Texture URLs inside a model are rewritten to the item's own image files by norma
 
 Standard library only. Serves `dist/` and the asset folder, builds the catalogue, and accepts `POST /thumb/<id>.jpg` for previews. It listens on `127.0.0.1` by default, checks the `Host` header, serves no dotfiles except `.thumbs/` images, resolves real paths so symlinks cannot leave the served folders, and caps uploads at 2 MB (JPEG only, custom header required). See [SECURITY.md](../SECURITY.md).
 
+`--assets DIR` and `--local-assets DIR` can each be repeated. The catalogue is the items of every root in order (the first root wins on a duplicate id, with a warning). `/assets/<id>/...`, `/assets/.thumbs/<id>...` and thumbnail POSTs all resolve inside the one root that owns `<id>`. Items from `--local-assets` carry `"collection": "local"` (the app shows a Local badge), and `--write-catalog` never includes them, so `public/catalog.json` cannot list private items.
+
 ## Units and scale
 
 The meadow currently scales to the loaded model's height: `span` is the model's largest dimension and terrain, grass and the pond are sized from it. Fauna uses a metre scale inside a group scaled by `span / 1.65`. The plan is to scale models to metres and make the meadow fixed-size in metres.

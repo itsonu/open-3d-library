@@ -24,6 +24,16 @@ python3 serve.py   # optional: serve dist/ plus an asset folder (see below)
 
 `serve.py` serves the built app (`dist/`) and a private asset folder, and generates `catalog.json` from that folder. Run `npm run build` first. Use `--assets DIR` to point it at your own folder. It listens on loopback only by default.
 
+## Private/local assets
+
+To see assets you must not publish (unlicensed, third-party characters) next to the public examples, put them in `local-assets/` (one `<type>-<name>` folder each, copied, not symlinked: the server refuses paths that resolve outside a root) and run:
+
+```sh
+npm run start:local   # serve.py --assets public/assets --local-assets local-assets
+```
+
+`--assets` and `--local-assets` are repeatable. Local items get `"collection": "local"` and a Local badge, and `--write-catalog` (`npm run catalog`) never includes them. `local-assets/` is git-ignored and must never be allow-listed in `.gitignore`. Run `npm run check` (private-file guard, unit and Python tests) before any push.
+
 ## Project layout
 
 ```
