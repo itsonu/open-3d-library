@@ -10,7 +10,7 @@ const $ = s => document.querySelector(s);
 const LABEL = {character:'Characters', outfit:'Outfits & hair', pose:'Poses', reference:'2D references', motion:'Motion'};
 const VIEW = ['glb','gltf','fbx','obj'], IMG = ['png','jpg','jpeg','webp','gif'], AUD = ['wav','mp3','ogg','m4a'];
 const ext = n => n.split('.').pop().toLowerCase();
-const url = (it, n) => `${encodeURIComponent(it.id)}/${encodeURIComponent(n)}`;
+const url = (it, n) => `assets/${encodeURIComponent(it.id)}/${encodeURIComponent(n)}`;
 const mb = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.max(1,Math.round(b/1e3))+' KB';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmt = t => `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
@@ -46,10 +46,9 @@ function fetchModel(it, file, onProg){
   });
 }
 // Some exports lose their texture links (FBX pointing at "tmp123.fbm/image_0_png", GLB stripped of its images, FBX whose
-// materials just lack maps). Repair in order: 1) explicit per-model rules from fixes.json, 2) match image files to
+// materials just lack maps). Repair in order: 1) explicit per-model rules (item.textureOverrides), 2) match image files to
 // material names by role (bodi -> bodi_Diffuse / bodi_Normal), 3) single-material models take the folder's colour image,
 // 4) drop any map whose image never arrived (it would render black).
-let FIX = {};
 async function fixTextures(obj, it){
   const imgs = it.files.filter(f => IMG.includes(ext(f.n)));
   const cache = {}, jobs = [];
@@ -58,7 +57,7 @@ async function fixTextures(obj, it){
   const byName = n => imgs.find(f => f.n === n);
   const role = n => /bump|height/i.test(n) ? 'bumpMap' : /normal|nrm|_n\.|_n$/i.test(n) ? 'normalMap' : /colou?r|diffuse|albedo|base|_c\.|_c$/i.test(n) ? 'map' : null;
   const key = n => n.toLowerCase().replace(/\.[^.]+$/, '').replace(/[^a-z].*$/, '');
-  const fx = FIX[it.id];
+  const fx = it.textureOverrides;
   const meshes = []; obj.traverse(o => o.isMesh && meshes.push(o));
   const done = new Set();                                   // materials set by an explicit rule are left alone below
   if(fx) for(const o of meshes){                            // rule value: an image file name, or a "#rrggbb" colour (for parts that have no texture at all)
@@ -261,7 +260,7 @@ function loadModel(it, file){
 
 function open(id){
   const it = lib.find(i => i.id===id); if(!it){ location.hash = ''; return; }
-  if(ADULT.has(id) && passed !== id){ setView('lib'); askAge(id); return; }
+  if(it.sensitive && passed !== id){ setView('lib'); askAge(id); return; }
   setView('viewer'); cur = it; token++; disposeModel();
   $('#title').textContent = `${LABEL[it.type]||it.type} / ${it.name}`;
   document.title = `${it.name} · Motion Library`;
@@ -396,7 +395,6 @@ lb.ondblclick = () => lbShow(lbI);
 
 // ---------- library (visual grid) ----------
 let lib = [], filter = 'all';
-const ADULT = new Set();                                    // ids listed in adult.json (edit that file to change the list)
 let passed = null;                                          // the one item the user just confirmed; asked again next time
 function askAge(id){
   $('#gate').style.display = 'flex';
@@ -417,7 +415,7 @@ function card(it){
   const m = pickModel(it), th = thumbOf(it);
   const tag = m ? ext(m.n) : it.files.some(f => AUD.includes(ext(f.n))) ? 'audio' : it.type==='reference' ? 'images' : ext(it.files.find(f => /blend|max|vmd/.test(ext(f.n)))?.n || it.files[0]?.n || '');
   const ph = m ? '' : tag.toUpperCase();
-  const ad = ADULT.has(it.id);                  // thumbnails of these stay blurred always
+  const ad = it.sensitive;                  // thumbnails of these stay blurred always
   return `<div class="card ${ad ? 'adult' : ''}" data-id="${it.id}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${it.id}" ${th ? `style="--b:url('${th}')"` : ''}>${th ? `<img loading="lazy" src="${th}" onload="this.classList.add('ld')">` : `<span class="ph">${ph}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
     <div class="meta"><b title="${it.name}">${it.name}</b><span>${LABEL[it.type]||it.type} · ${tag}</span></div></div>`;
 }
@@ -430,7 +428,7 @@ function renderLib(){
     const items = lib.filter(i => i.type===t && (i.name+' '+t).toLowerCase().includes(q));
     if(items.length) out += `<h2>${LABEL[t]} · ${items.length}</h2><div class="grid">${items.map(card).join('')}</div>`;
   }
-  $('#lib').innerHTML = out || '<p style="color:var(--dim)">Nothing matches.</p>';
+  $('#lib').innerHTML = out || `<p style="color:var(--dim)">${lib.length ? 'Nothing matches.' : 'No assets yet — open a file or add examples'}</p>`;
 }
 $('#chips').onclick = e => { const t = e.target.dataset.t; if(t){ filter = t; renderLib(); } };
 $('#lib').onclick = e => { const c = e.target.closest('.card'); if(c) location.hash = c.dataset.id; };
@@ -468,7 +466,7 @@ async function thumbQueue(){
     $('#status').textContent = `making previews ${++n}/${todo.length}`;
     try{
       const blob = await makeThumb(it);
-      fetch(`/thumb/${it.id}.jpg`, {method:'POST', body:blob}).catch(() => {});
+      fetch(`thumb/${it.id}.jpg`, {method:'POST', headers:{'X-O3DL':'1'}, body:blob}).catch(() => {});
       it.thumb = URL.createObjectURL(blob);
       const th = document.querySelector(`[data-th="${it.id}"]`);
       if(th){ th.style.setProperty('--b', `url('${it.thumb}')`); th.replaceChildren(Object.assign(new Image(), {src:it.thumb, onload(){ this.classList.add('ld'); }})); }
@@ -658,7 +656,5 @@ addEventListener('keydown', e => {
   else if(e.key==='ArrowRight' && T.dur) setTime(T.t+5); else if(e.key==='ArrowLeft' && T.dur) setTime(T.t-5);
 });
 
-fetch('fixes.json').then(r => r.json()).then(j => { FIX = j; }).catch(() => {})
-  .then(() => fetch('adult.json')).then(r => r.json()).catch(() => []).then(a => a.forEach(x => ADULT.add(x)))
-  .then(() => fetch('library.json')).then(r => r.json()).then(d => { lib = d; renderLib(); route(); thumbQueue(); })
-  .catch(() => { $('#lib').innerHTML = '<p style="color:var(--dim)">library.json not found. Run: python3 serve.py</p>'; });
+fetch('catalog.json').then(r => r.json()).then(d => d.items || []).catch(() => [])
+  .then(d => { lib = d; renderLib(); route(); thumbQueue(); });
