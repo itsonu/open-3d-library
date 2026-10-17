@@ -9,12 +9,16 @@
     "node": ">=20"
   },
   "scripts": {
+    "start": "npm run build && python3 serve.py",
+    "start:local": "npm run build && python3 serve.py --assets public/assets --local-assets local-assets",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "catalog": "python3 serve.py --write-catalog public/catalog.json",
     "test:unit": "node --test tests/",
-    "test:py": "python3 -m unittest discover -s tests"
+    "test:py": "python3 -m unittest discover -s tests",
+    "check:private": "node scripts/check-no-private.mjs",
+    "check": "npm run check:private && npm run test:unit && npm run test:py"
   },
   "dependencies": {
     "three": "0.186.1"

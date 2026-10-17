@@ -1,5 +1,7 @@
 # track only the library code; assets and caches stay out of git
 /*
+# private local collection: never commit
+/local-assets/
 !/.gitignore
 !/index.html
 !/package.json
@@ -21,6 +23,10 @@
 !/docs/**
 !/.github/
 !/.github/**
+!/.claude/
+!/.claude/**
+!/scripts/
+!/scripts/**
 !/CONTRIBUTING.md
 !/CODE_OF_CONDUCT.md
 !/SECURITY.md
