@@ -8,7 +8,7 @@ import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
 
 const $ = s => document.querySelector(s);
 const LABEL = {character:'Characters', outfit:'Outfits & hair', pose:'Poses', reference:'2D references', motion:'Motion'};
-const VIEW = ['glb','gltf','fbx','obj','pmx','pmd'], IMG = ['png','jpg','jpeg','webp','gif'], AUD = ['wav','mp3','ogg','m4a'];
+const VIEW = ['glb','gltf','fbx','obj'], IMG = ['png','jpg','jpeg','webp','gif'], AUD = ['wav','mp3','ogg','m4a'];
 const ext = n => n.split('.').pop().toLowerCase();
 const url = (it, n) => `${encodeURIComponent(it.id)}/${encodeURIComponent(n)}`;
 const mb = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.max(1,Math.round(b/1e3))+' KB';
@@ -16,14 +16,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmt = t => `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
 const pickModel = it => it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b) => VIEW.indexOf(ext(a.n)) - VIEW.indexOf(ext(b.n)))[0];
 
-// Some FBX exports have broken blend-shape data that crashes three's stock loader; retry with morph targets skipped.
+// Some FBX exports have broken blend-shape data that crashes three's stock loader; retry with a local copy of the loader that skips morph targets.
 let fbxPatched;
-const patchedFBX = () => fbxPatched ??= (async () => {
-  const base = 'https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/loaders/FBXLoader.js';
-  const src = (await (await fetch(base)).text()).replace("'../libs/fflate.module.js'", "'three/addons/libs/fflate.module.js'")
-    .replace("'../curves/NURBSCurve.js'", "'three/addons/curves/NURBSCurve.js'").replace('const rawMorphTargets = [];', 'const rawMorphTargets = []; if(true) return rawMorphTargets;');
-  return (await import(URL.createObjectURL(new Blob([src], {type:'text/javascript'})))).FBXLoader;
-})();
+const patchedFBX = () => fbxPatched ??= import('./loaders/FBXLoaderNoMorph.js').then(m => m.FBXLoader);
 
 // ---------- model loading (shared by viewer and thumbnail generator) ----------
 function fetchModel(it, file, onProg){
@@ -43,12 +38,6 @@ function fetchModel(it, file, onProg){
     const e = ext(file.n), u = url(it, file.n);
     if(e==='glb'||e==='gltf') new GLTFLoader(mgr).load(u, g => { g.scene.animations = g.animations; res(g.scene); }, onProg, rej);
     else if(e==='fbx') new FBXLoader(mgr).load(u, res, onProg, err => err instanceof TypeError ? patchedFBX().then(L => new L(mgr).load(u, res, onProg, rej), rej) : rej(err));
-    else if(e==='pmx'||e==='pmd') import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/MMDLoader.js').then(({MMDLoader}) => {
-      const vmds = it.files.filter(f => ext(f.n)==='vmd').map(f => url(it, f.n));
-      const l = new MMDLoader(mgr);
-      if(vmds.length) l.loadWithAnimation(u, vmds, m => { m.mesh.animations = [m.animation]; res(m.mesh); }, onProg, rej);
-      else l.load(u, res, onProg, rej);
-    }, rej);
     else {
       const want = file.n.replace(/\.obj$/i,'.mtl').toLowerCase(), mtl = it.files.find(f => f.n.toLowerCase() === want)?.n;
       const go = mats => { const l = new OBJLoader(mgr); if(mats) l.setMaterials(mats); l.load(u, res, onProg, rej); };
@@ -302,13 +291,13 @@ async function vmdInfo(it){
   if(!v) return;
   const my = cur;
   try{
-    const mod = await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/mmdparser.module.js'); const P = mod.MMDParser || mod;
+    const mod = await import('../vendor/mmdparser/mmdparser.module.js'); const P = mod.MMDParser || mod;
     const buf = await (await fetch(url(it, v.n))).arrayBuffer();
     const d = new P.Parser().parseVmd(buf, true);
     const bones = new Set(d.motions.map(m => m.boneName)), last = Math.max(0, ...d.motions.map(m => m.frameNum));
     if(cur !== my) return;
     $('#msg').textContent = `VMD motion  ·  ${bones.size} bone tracks  ·  ${d.motions.length.toLocaleString()} keyframes  ·  ${(last/30).toFixed(1)} s @30fps\n`
-      + 'It animates an MMD-rigged model (.pmx/.pmd). Drop one in this folder and it will play here.' + (T.audio ? '\nThe .wav plays with the controls below.' : '');
+      + 'It animates an MMD-rigged model.' + (T.audio ? '\nThe .wav plays with the controls below.' : '');
   }catch(e){ $('#msg').textContent += '\n(VMD could not be parsed)'; }
 }
 function loadMocap(it, file){
