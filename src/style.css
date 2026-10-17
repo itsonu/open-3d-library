@@ -243,3 +243,4 @@ button.plain[aria-pressed=true]{background:none;color:var(--text);font-weight:60
 #err h2{color:var(--danger)}
 dialog#gate{border:0;padding:0;background:none;color:inherit;max-width:90vw}
 dialog#gate::backdrop{background:#000c}
+@media (prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important}}

@@ -27,6 +27,7 @@ First public version.
 
 ### Changed
 
+- The interface was redesigned and renamed Open 3D Library: design tokens, one button style with focus rings and pressed states, a three-zone viewer toolbar with a Shaded / Clay / Wireframe switch and an Overlays menu, type chips generated from the catalogue, grid and list layouts, sorting, licence badges, a sectioned inspector that shows catalogue metadata (a bottom sheet on phones), grouped scene sliders with "Reset to defaults", and ARIA labels and roles throughout.
 - The catalogue is read from `catalog.json`; asset files live under `assets/<id>/`. Sensitive flags and texture overrides come from the catalogue items.
 - Sources moved to `src/`; pages that run in iframes moved to `public/vendor/`.
 - `serve.py` was rewritten as an optional server.
