@@ -2,7 +2,7 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-10-17
 
 First public version.
 
@@ -51,3 +51,5 @@ First public version.
 - `serve.py` listens on loopback only by default, checks the `Host` header, never serves dotfiles (except generated thumbnails), resolves real paths so symlinks cannot escape the served folders, and caps thumbnail uploads at 2 MB and JPEG only.
 - Thumbnail uploads require a custom request header, so cross-site form posts are rejected.
 - All catalogue, model and file names are HTML-escaped wherever they appear, and generated markup has no inline event handlers. Models opened from disk cannot make network requests for textures: unmatched texture URLs resolve to a blank image.
+
+[0.1.0]: https://github.com/itsonu/open-3d-library/releases/tag/v0.1.0
