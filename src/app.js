@@ -14,6 +14,9 @@ const itemType = it => it.local ? 'Opened file' : typeLabel(it.type);
 const totalSize = it => it.files.reduce((n, f) => n + (f.s || 0), 0);
 const mb = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.max(1,Math.round(b/1e3))+' KB';
 const safeBase = u => { if(/^data:/i.test(u)) return ''; const b = String(u || '').split('?')[0].split('/').pop(); try{ return decodeURIComponent(b); }catch(e){ return b; } };
+// toolbar helpers: disable a control with the reason as its tooltip (why = '' re-enables it and restores the original title)
+function dis(el, why){ const t = el.closest('label') || el; el.disabled = !!why; t.dataset.t ??= t.title; t.title = why || t.dataset.t; }
+const toggle = (id, fn) => $('#'+id).onclick = () => { const on = $('#'+id).getAttribute('aria-pressed') !== 'true'; $('#'+id).setAttribute('aria-pressed', on); fn(on); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmt = t => `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
 const pickModel = it => it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b) => VIEW.indexOf(ext(a.n)) - VIEW.indexOf(ext(b.n)))[0];
@@ -228,7 +231,7 @@ $('#tStop').onclick = () => { setTime(0); };
 $('#seek').oninput = e => { T.drag = true; setTime(e.target.value/1000*T.dur); };
 $('#seek').onchange = () => T.drag = false;
 $('#tSpeed').onchange = e => { T.speed = +e.target.value; if(T.audio) T.audio.playbackRate = T.speed; };
-$('#tLoop').onclick = e => { T.loop = e.target.classList.toggle('on'); };
+toggle('tLoop', on => T.loop = on);
 $('#tClip').onchange = e => selectClip(+e.target.value);
 $('#vol').oninput = e => { if(T.audio) T.audio.volume = +e.target.value; };
 
@@ -248,13 +251,14 @@ function mount(obj){
   applyMode(); model.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
   const span = Math.max(size.x, size.y, size.z) || 1;
-  grid = new THREE.GridHelper(span*3, 30, 0x6b7280, 0x3b4150); grid.position.y = box.min.y; grid.visible = $('#bGrid').classList.contains('on');
+  grid = new THREE.GridHelper(span*3, 30, 0x6b7280, 0x3b4150); grid.position.y = box.min.y; grid.visible = $('#oGrid').checked;
   grid.material.transparent = true; grid.material.opacity = .5;
-  bbox = new THREE.Box3Helper(box, 0x6ea8ff); bbox.visible = $('#bBox').classList.contains('on');
+  bbox = new THREE.Box3Helper(box, 0x6ea8ff); bbox.visible = $('#oBox').checked;
   scene.add(grid, bbox);
   const nBones = meshes.reduce((n, m) => n + (m.isSkinnedMesh ? m.skeleton.bones.length : 0), 0);
-  if(nBones){ skel = new THREE.SkeletonHelper(model); skel.material.depthTest = false; skel.visible = $('#bSkel').classList.contains('on'); scene.add(skel); }
-  $('#bSkel').hidden = !nBones;
+  if(nBones){ skel = new THREE.SkeletonHelper(model); skel.material.depthTest = false; skel.visible = $('#oSkel').checked; scene.add(skel); }
+  else $('#oSkel').checked = false;
+  dis($('#oSkel'), nBones ? '' : 'This model has no rig'); $('#skelWhy').textContent = nBones ? '' : '(no rig)';
   // grounding for the scenery backdrop: fixed sun with a soft shadow on an invisible floor, plus an ink-wash blob under the feet
   const c = box.getCenter(new THREE.Vector3());
   sun = new THREE.DirectionalLight(0xfff0d8, 2.2); sun.position.set(c.x + span*1.4, box.max.y + span*1.6, c.z + span*.9); sun.target.position.copy(c);
@@ -296,7 +300,7 @@ function open(id){
   $('#notice').hidden = true;
   if(it.sensitive && passed !== id){ setView('lib'); askAge(id); return; }
   setView('viewer'); cur = it; token++; disposeModel(); $('#err').hidden = true;
-  $('#bPrev').disabled = $('#bNext').disabled = !!it.local;
+  dis($('#bPrev'), it.local && 'Previous/next only work for library assets'); dis($('#bNext'), it.local && 'Previous/next only work for library assets');
   $('#title').textContent = `${itemType(it)} / ${it.name}`;
   document.title = `${it.name} · Open 3D Library`;
   const models = it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b) => VIEW.indexOf(ext(a.n)) - VIEW.indexOf(ext(b.n)));
@@ -308,8 +312,9 @@ function open(id){
   if(mocap){ fsel.hidden = vmds.length < 2; fsel.innerHTML = vmds.map(f => `<option>${esc(f.n)}</option>`).join(''); }
   const is3d = models.length > 0 || mocap, isGal = !is3d && it.type==='reference' && imgs.length;
   $('#center').firstElementChild.style.display = isGal ? 'none' : ''; g.style.display = isGal ? 'grid' : 'none';
-  ['bReset','bIn','bOut','bRot','bWire','bClay','bGrid','bBox','bg','bShot'].forEach(b => $('#'+b).disabled = !is3d);
-  $('#load').hidden = true; $('#msg').textContent = ''; $('#bSkel').hidden = true;
+  document.querySelectorAll('#hView [data-3d]').forEach(el => dis(el, !is3d && 'No 3D view for this asset'));
+  dis($('#oSkel'), is3d ? 'This model has no rig' : 'No 3D view for this asset'); $('#skelWhy').textContent = '';
+  $('#load').hidden = true; $('#msg').textContent = '';
   if(isGal){
     g.innerHTML = imgs.map((f,i) => `<figure data-i="${i}"><img loading="lazy" src="${esc(f.t || url(it,f.n))}" data-full="${esc(url(it,f.n))}" alt=""><figcaption>${esc(f.n)}</figcaption></figure>`).join('');
     g.onclick = e => { const f = e.target.closest('figure'); if(f) lightbox(imgs.map(x => url(it,x.n)), +f.dataset.i); };
@@ -399,17 +404,33 @@ renderer.domElement.addEventListener('pointerup', e => { if(down && Math.hypot(e
 renderer.domElement.addEventListener('dblclick', e => { const h = pick(e); if(h){ select(h.object); frame(new THREE.Box3().setFromObject(h.object), true); } });
 
 // ---------- toolbar ----------
-const toggle = (id, fn) => $('#'+id).onclick = () => fn($('#'+id).classList.toggle('on'));
 $('#bReset').onclick = () => { if(!home) return; camera.position.copy(home.pos); controls.target.copy(home.tgt); camera.near = home.near; camera.far = home.far; camera.updateProjectionMatrix(); controls.update(); };
 const zoom = f => camera.position.sub(controls.target).multiplyScalar(f).add(controls.target);
 $('#bIn').onclick = () => zoom(.8); $('#bOut').onclick = () => zoom(1.25);
 toggle('bRot', on => controls.autoRotate = on);
-toggle('bWire', on => { flags.wire = on; applyMode(); });
-toggle('bClay', on => { flags.clay = on; applyMode(); });
-toggle('bGrid', on => grid && (grid.visible = on && !SC.on));
-toggle('bBox', on => bbox && (bbox.visible = on));
-toggle('bSkel', on => skel && (skel.visible = on));
-toggle('bInsp', on => { $('#viewer').classList.toggle('noinsp', !on); resize(); });
+function setMode(m){ flags.clay = m === 'clay'; flags.wire = m === 'wire'; $(`[name=mode][value=${m}]`).checked = true; applyMode(); }
+document.querySelectorAll('[name=mode]').forEach(r => r.onchange = () => setMode(r.value));
+$('#oGrid').onchange = e => grid && (grid.visible = e.target.checked && !SC.on);
+$('#oBox').onchange = e => bbox && (bbox.visible = e.target.checked);
+$('#oSkel').onchange = e => skel && (skel.visible = e.target.checked);
+// inspector: a side panel on desktop, a bottom sheet below 768 px (closed there until asked for)
+const narrow = matchMedia('(max-width:767.98px)');
+function setInsp(on){ $('#viewer').classList.toggle('noinsp', !on); $('#bInsp').setAttribute('aria-pressed', on); resize(); }
+$('#bInsp').onclick = () => setInsp($('#bInsp').getAttribute('aria-pressed') !== 'true');
+$('#bDet').onclick = () => setInsp(true); $('#bDetX').onclick = () => { setInsp(false); $('#bDet').focus(); };
+if(narrow.matches) setInsp(false);
+// popovers: Overlays (wide) and More (narrow); one open at a time, click outside or Esc closes
+const POP = {bOv: 'ovMenu', bMore: 'more'};
+function pop(b, on = $('#'+b).getAttribute('aria-expanded') !== 'true'){
+  if(on) for(const k in POP) if(k !== b) pop(k, false);
+  $('#'+b).setAttribute('aria-expanded', on); $('#'+POP[b]).classList.toggle('open', on);
+}
+const openPop = () => Object.keys(POP).find(k => $('#'+k).getAttribute('aria-expanded') === 'true');
+$('#bOv').onclick = () => pop('bOv'); $('#bMore').onclick = () => pop('bMore');
+document.addEventListener('click', e => {
+  if(!e.target.closest('.pw, #bMore')) pop('bOv', false);
+  if(!e.target.closest('#more, #bMore') || (e.target.closest('#more button') && !e.target.closest('.pw'))) pop('bMore', false);
+});
 $('#bg').onchange = () => sceneApply();
 $('#bShot').onclick = () => { renderer.render(scene, camera); renderer.domElement.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = (cur?.id||'shot')+'.png'; a.click(); }); };
 $('#bBack').onclick = () => location.hash = '';
@@ -439,7 +460,7 @@ function askAge(id){
 }
 let libDirty = false;
 function setView(v){
-  view = v; $('#lib').hidden = $('#hLib').hidden = v!=='lib'; $('#viewer').hidden = $('#hView').hidden = v!=='viewer';
+  view = v; pop('bOv', false); pop('bMore', false); $('#lib').hidden = $('#hLib').hidden = v!=='lib'; $('#viewer').hidden = $('#hView').hidden = v!=='viewer';
   if(v==='lib'){ document.title = 'Open 3D Library'; disposeModel(); cur = null; passed = null; $('#err').hidden = true; if(libDirty) renderLib(); }
   resize();
 }
@@ -686,9 +707,9 @@ function sceneApply(){
   back.hidden = fore.hidden = !SC.on || SC.kind === 'meadow';
   scene.background = SC.on ? null : new THREE.Color($('#bg').value);
   const k = (SC.on ? SC.light : 100) / 100, mead = SC.on && SC.kind === 'meadow'; hemi.intensity = (mead ? 1.7 : 1.6)*k; key.intensity = (mead ? .3 : 2.2)*k;   // meadow: the sun does the lighting
-  $('#bScene').classList.toggle('on', !$('#scenePanel').hidden);
+  $('#bScene').setAttribute('aria-expanded', !$('#scenePanel').hidden);
   groundApply(); if(!!meadow !== (SC.on && SC.kind === 'meadow')) meadowApply();
-  if(grid) grid.visible = $('#bGrid').classList.contains('on') && !SC.on;   // a grid on top of a painting looks wrong
+  if(grid) grid.visible = $('#oGrid').checked && !SC.on;   // a grid on top of a painting looks wrong
   if(!SC.on || SC.kind === 'meadow') return;
   const look = `sepia(${SC.sepia}%) hue-rotate(${SC.hue}deg) brightness(${SC.bright}%) contrast(${SC.contrast}%) saturate(${SC.sat}%)`;
   $('#wash').style.background = SC.kind === 'fish' ? 'linear-gradient(#e4f0ee, #b9d3d6 60%, #8fb3bd)' : 'none';
@@ -746,14 +767,23 @@ function route(){ const id = decodeURIComponent(location.hash.slice(1)); if(id) 
 addEventListener('hashchange', route);
 addEventListener('keydown', e => {
   if(e.key==='/' && document.activeElement!==$('#q') && view==='lib'){ e.preventDefault(); $('#q').focus(); return; }
-  if(/INPUT|SELECT/.test(document.activeElement.tagName) && e.key!=='Escape') return;
-  if(lb.style.display==='block'){ if(e.key==='Escape') lb.style.display='none'; if(e.key==='ArrowRight') lbShow(lbI+1); if(e.key==='ArrowLeft') lbShow(lbI-1); return; }
-  if(e.key.toLowerCase()==='o' && !e.metaKey && !e.ctrlKey && !e.altKey){ fileIn.click(); return; }
+  const a = document.activeElement;
+  if(e.key==='Escape' && lb.style.display==='block'){ lb.style.display='none'; return; }
+  if(e.key==='Escape' && view==='viewer'){                    // close the topmost thing; with nothing open, leave the viewer
+    const p = openPop(); if(p){ pop(p, false); $('#'+p).focus(); return; }
+    if(!$('#scenePanel').hidden){ $('#scenePanel').hidden = true; sceneApply(); $('#bScene').focus(); return; }
+    if(narrow.matches && !$('#viewer').classList.contains('noinsp')){ setInsp(false); return; }
+    location.hash = ''; return;
+  }
+  if(a.matches('input:not([type=checkbox],[type=radio]),select,textarea') || (a.type==='radio' && e.key.startsWith('Arrow'))) return;
+  if(lb.style.display==='block'){ if(e.key==='ArrowRight') lbShow(lbI+1); if(e.key==='ArrowLeft') lbShow(lbI-1); return; }
+  if(e.metaKey || e.ctrlKey || e.altKey) return;
+  if(e.key.toLowerCase()==='o'){ fileIn.click(); return; }
   if(view!=='viewer') return;
-  const k = e.key.toLowerCase();
-  if(e.key==='Escape') location.hash = '';
-  else if(k==='r') $('#bReset').click(); else if(k==='w') $('#bWire').click(); else if(k==='c') $('#bClay').click();
-  else if(k==='k') $('#bSkel').click(); else if(k==='e') $('#bScene').click(); else if(k==='g') $('#bGrid').click(); else if(k==='b') $('#bBox').click(); else if(k==='i') $('#bInsp').click();
+  if((e.key===' ' || e.key==='Enter') && a.closest('button,a,summary,label')) return;   // let a focused control handle its own activation
+  const k = e.key.toLowerCase(), on3d = !$('#bReset').disabled;
+  if(k==='r') $('#bReset').click(); else if(k==='w' && on3d) setMode(flags.wire ? 'shaded' : 'wire'); else if(k==='c' && on3d) setMode(flags.clay ? 'shaded' : 'clay');
+  else if(k==='k') $('#oSkel').click(); else if(k==='e') $('#bScene').click(); else if(k==='g') $('#oGrid').click(); else if(k==='b') $('#oBox').click(); else if(k==='i') $('#bInsp').click();
   else if(k==='[') step(-1); else if(k===']') step(1);
   else if(k===' '){ e.preventDefault(); if(T.dur||T.audio) play(!T.playing); else $('#bRot').click(); }
   else if(e.key==='ArrowRight' && T.dur) setTime(T.t+5); else if(e.key==='ArrowLeft' && T.dur) setTime(T.t-5);

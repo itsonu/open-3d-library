@@ -15,6 +15,23 @@
   <symbol id="i-grid" viewBox="0 0 16 16"><path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z"/></symbol>
   <symbol id="i-list" viewBox="0 0 16 16"><path d="M5 4h9M5 8h9M5 12h9M2 4h.5M2 8h.5M2 12h.5"/></symbol>
   <symbol id="i-open" viewBox="0 0 16 16"><path d="M2 4h4l1.5 1.5H14V12.5H2z"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M13 8H3M7 4 3 8l4 4"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 16 16"><path d="m10 3-5 5 5 5"/></symbol>
+  <symbol id="i-next" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 16 16"><path d="M3 8a5 5 0 1 0 1.6-3.7M3 2.5v3h3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 16 16"><path d="M3 8h10"/></symbol>
+  <symbol id="i-rotate" viewBox="0 0 16 16"><path d="M13 8a5 5 0 0 1-9 3M3 8a5 5 0 0 1 9-3M12 2v3H9M4 14v-3h3"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 16 16"><path d="m8 2-6 3.5L8 9l6-3.5zM2 8.5 8 12l6-3.5"/></symbol>
+  <symbol id="i-scene" viewBox="0 0 16 16"><path d="m2 13 4-6 3 4 2-3 3 5z"/><circle cx="11.5" cy="4" r="1.5"/></symbol>
+  <symbol id="i-shot" viewBox="0 0 16 16"><path d="M2 5h2.5L6 3.5h4L11.5 5H14v8H2z"/><circle cx="8" cy="8.7" r="2.3"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 16 16"><path d="M2 3h12v10H2zM10 3v10"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-up" viewBox="0 0 16 16"><path d="m4 10 4-4 4 4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.5v9l7.5-4.5z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16"><path d="M5.5 3.5v9M10.5 3.5v9" stroke-width="2.2"/></symbol>
+  <symbol id="i-rewind" viewBox="0 0 16 16"><path d="M4 3.5v9M12.5 3.5 6 8l6.5 4.5z" fill="currentColor"/></symbol>
 </svg>
 <header id="hLib">
   <div class="brand"><svg class="i logo"><use href="#i-cube"/></svg><h1>Open 3D Library</h1></div>
@@ -30,44 +47,63 @@
     <label class="sort">Sort <select id="sort"><option value="name">Name</option><option value="type">Type</option><option value="size">Size (largest first)</option></select></label></div>
 </header>
 <header id="hView" hidden>
-  <button id="bBack" title="Esc">← Library</button>
-  <button id="bOpen" title="Open files or a folder (O)">Open…</button>
-  <button id="bPrev" title="[">‹</button><button id="bNext" title="]">›</button>
-  <span id="title"></span>
-  <select id="fsel" hidden></select>
-  <button id="bReset" title="Reset view (R)">Reset</button>
-  <button id="bIn">＋</button><button id="bOut">－</button>
-  <button id="bRot" title="Auto-rotate">Rotate</button>
-  <button id="bWire" title="Wireframe (W)">Wire</button>
-  <button id="bClay" title="Plain clay material (C)">Clay</button>
-  <button id="bGrid" class="on" title="Grid (G)">Grid</button>
-  <button id="bBox" title="Bounding box (B)">Box</button>
-  <button id="bSkel" hidden title="Show skeleton (K)">Bones</button>
-  <button id="bScene" title="Scenery backdrop (E)">Scene</button>
-  <select id="bg"><option value="#14161a">Dark</option><option value="#4a4f5a">Grey</option><option value="#e9ebef">Light</option></select>
-  <button id="bShot" title="Save PNG">Shot</button>
-  <button id="bInsp" class="on" title="Inspector (I)">Inspect</button>
+  <div class="tz tl">
+    <button id="bBack" class="ghost" title="Back to library (Esc)" aria-label="Back to library"><svg class="i"><use href="#i-back"/></svg><span class="lbl">Library</span></button>
+    <button id="bPrev" class="ghost icon" title="Previous asset ([)" aria-label="Previous asset"><svg class="i"><use href="#i-prev"/></svg></button><button id="bNext" class="ghost icon" title="Next asset (])" aria-label="Next asset"><svg class="i"><use href="#i-next"/></svg></button>
+    <h1 id="title"></h1>
+    <select id="fsel" hidden aria-label="Model file"></select>
+  </div>
+  <div class="tz tc">
+    <div class="seg" role="radiogroup" aria-label="Display mode">
+      <label title="Shaded: original materials"><input type="radio" name="mode" value="shaded" data-3d checked><span>Shaded</span></label>
+      <label title="Clay: plain material (C)"><input type="radio" name="mode" value="clay" data-3d><span>Clay</span></label>
+      <label title="Wireframe (W)"><input type="radio" name="mode" value="wire" data-3d><span>Wireframe</span></label>
+    </div>
+    <button id="bReset" class="ghost" data-3d title="Reset view (R)" aria-label="Reset view"><svg class="i"><use href="#i-reset"/></svg><span class="lbl">Reset</span></button>
+    <button id="bOut" class="ghost icon" data-3d title="Zoom out" aria-label="Zoom out"><svg class="i"><use href="#i-minus"/></svg></button><button id="bIn" class="ghost icon" data-3d title="Zoom in" aria-label="Zoom in"><svg class="i"><use href="#i-plus"/></svg></button>
+    <button id="bRot" class="ghost" data-3d aria-pressed="false" title="Auto-rotate (Space when there is no animation)" aria-label="Auto-rotate"><svg class="i"><use href="#i-rotate"/></svg><span class="lbl">Rotate</span></button>
+  </div>
+  <div class="tz tr">
+    <button id="bMore" class="ghost icon" aria-expanded="false" aria-controls="more" title="More tools" aria-label="More tools"><svg class="i"><use href="#i-more"/></svg></button>
+    <div id="more">
+      <div class="pw">
+        <button id="bOv" class="ghost" data-3d aria-expanded="false" aria-controls="ovMenu" title="Overlays: grid, bounding box, bones" aria-label="Overlays"><svg class="i"><use href="#i-layers"/></svg><span class="lbl">Overlays</span></button>
+        <div id="ovMenu" class="menu" role="group" aria-label="Overlays">
+          <span class="mh" aria-hidden="true">Overlays</span>
+          <label><input type="checkbox" id="oGrid" data-3d checked> Grid <kbd aria-hidden="true">G</kbd></label>
+          <label><input type="checkbox" id="oBox" data-3d> Bounding box <kbd aria-hidden="true">B</kbd></label>
+          <label><input type="checkbox" id="oSkel" disabled> Bones <small id="skelWhy"></small><kbd aria-hidden="true">K</kbd></label>
+        </div>
+      </div>
+      <button id="bScene" class="ghost" aria-expanded="false" aria-controls="scenePanel" title="Environment and scenery (E)" aria-label="Scene"><svg class="i"><use href="#i-scene"/></svg><span class="lbl">Scene</span></button>
+      <select id="bg" data-3d aria-label="Background colour" title="Background colour"><option value="#14161a">Dark</option><option value="#4a4f5a">Grey</option><option value="#e9ebef">Light</option></select>
+      <button id="bShot" class="ghost" data-3d title="Save screenshot as PNG" aria-label="Screenshot"><svg class="i"><use href="#i-shot"/></svg><span class="lbl">Shot</span></button>
+      <button id="bOpen" class="ghost" title="Open files or a folder (O)" aria-label="Open files"><svg class="i"><use href="#i-open"/></svg><span class="lbl">Open…</span></button>
+      <button id="bInsp" class="ghost" aria-pressed="true" aria-controls="insp" title="Inspector (I)" aria-label="Inspector"><svg class="i"><use href="#i-panel"/></svg><span class="lbl">Inspector</span></button>
+    </div>
+  </div>
 </header>
 
 <div id="notice" role="status" hidden><span></span><button id="nClose" title="Dismiss this message">Dismiss</button></div>
 <main id="lib"></main>
 
-<div id="viewer" hidden>
+<main id="viewer" hidden>
   <div id="center">
     <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="wash"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="err" role="alert" hidden><div class="panel"><h2>Couldn't open this file</h2><p id="errMsg"></p><code id="errFile"></code><div class="btns"><button id="eBack" class="primary">Back to library</button><button id="eOpen">Open another file…</button></div></div></div><div id="load" role="status" hidden><div class="panel"><h2 id="loadT">Loading…</h2><progress id="loadP" max="100" aria-label="Loading progress"></progress><span class="pct" id="loadPct" aria-hidden="true"></span></div></div><canvas id="viz" width="1200" height="120" hidden></canvas>
+      <button id="bDet" aria-controls="insp" title="Show asset details (I)"><svg class="i"><use href="#i-up"/></svg>Details</button>
       <div id="hint">drag = rotate · right-drag / shift-drag = move · wheel = zoom · click = pick mesh · double-click = focus</div></div>
     <div id="gallery"></div>
     <div id="tr" hidden>
       <button id="tPlay" title="Space">▶</button><button id="tStop" title="Rewind">⏮</button>
       <input id="seek" type="range" min="0" max="1000" value="0"><span id="time">0:00 / 0:00</span>
       <select id="tSpeed" title="Speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>1.5</option><option>2</option></select>
-      <button id="tLoop" class="on" title="Loop">Loop</button>
+      <button id="tLoop" aria-pressed="true" title="Loop">Loop</button>
       <select id="tClip" hidden title="Animation clip"></select>
       <span id="volw" style="color:var(--dim)">vol <input id="vol" type="range" min="0" max="1" step="0.05" value="0.8"></span>
     </div>
   </div>
-  <aside id="insp"><div id="inspBody"></div></aside>
-</div>
+  <aside id="insp" aria-label="Inspector"><div class="sheet-h"><b>Details</b><button id="bDetX" class="ghost icon" title="Close details" aria-label="Close details"><svg class="i"><use href="#i-close"/></svg></button></div><div id="inspBody"></div></aside>
+</main>
 <div id="lb"><img alt=""></div>
 <dialog id="gate" aria-labelledby="gT"><div class="panel"><h2 id="gT">18+ content</h2><p>This item may contain nudity.<br>Are you 18 or older?</p><div class="btns"><button id="gYes" class="primary">Yes, I'm 18+</button><button id="gNo">No, go back</button></div></div></dialog>
 
