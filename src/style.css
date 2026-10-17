@@ -86,6 +86,7 @@ header .size input{width:90px}
 .lic:empty{display:none}
 .card.adult .th img,.card.adult .th::before{filter:blur(30px) brightness(.7);transform:scale(1.2)}
 .badge{position:absolute;top:var(--sp-2);left:var(--sp-2);z-index:2;background:#b3261e;color:#fff;font-size:var(--fs-1);font-weight:700;padding:2px var(--sp-2);border-radius:10px}
+.badge.local{left:auto;right:var(--sp-2);background:#37474f}
 .empty{margin:12vh auto;text-align:center;color:var(--muted);display:flex;flex-direction:column;gap:var(--sp-3);align-items:center}
 /* list layout: the same cards as compact rows */
 .list{display:flex;flex-direction:column;gap:var(--sp-1)}
@@ -96,6 +97,7 @@ header .size input{width:90px}
 .list .th{aspect-ratio:1;width:44px;border-radius:var(--r-1)}
 .list .th .ph{font-size:var(--fs-1)}.list .th .gen{display:none}
 .list .badge{top:2px;left:2px;padding:0 4px;font-size:10px}
+.list .badge.local{left:2px;right:auto;top:auto;bottom:2px}
 .list .meta,.list .sub{display:contents}
 .list .sub>span::after{content:none}
 .list .lic{margin:0;align-self:center;justify-self:start;overflow:hidden;text-overflow:ellipsis;max-width:100%}

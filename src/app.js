@@ -364,7 +364,7 @@ function assetInfo(it){                                                         
     + (tags.length ? `<div class="tags">${tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '');
 }
 function inspector(size){
-  let h = sec('Asset', null, assetInfo(cur));
+  let h = sec('Asset', null, assetInfo(cur) + (cur.collection === 'local' ? `<p class="muted">${esc('Local collection — not part of the public library')}</p>` : ''));
   if(model){
     let tris = 0, verts = 0; const mats = new Set(), tex = new Set();
     for(const m of meshes){
@@ -479,7 +479,7 @@ function card(it){
   const tag = m ? ext(m.n) : it.files.some(f => AUD.includes(ext(f.n))) ? 'audio' : it.type==='reference' ? 'images' : ext(it.files.find(f => /blend|max|vmd/.test(ext(f.n)))?.n || it.files[0]?.n || '');
   const ph = m ? '' : tag.toUpperCase(), lic = licenseBadge(it.license);
   const ad = it.sensitive;                  // thumbnails of these stay blurred always
-  return `<a class="card ${ad ? 'adult' : ''}" href="#${esc(encodeURIComponent(it.id))}" data-id="${esc(it.id)}">${ad ? '<span class="badge">18+</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${esc(it.id)}" ${th ? `style="--b:${esc(cssImg(th))}"` : ''}>${th ? `<img loading="lazy" src="${esc(th)}" alt="">` : `<span class="ph">${esc(ph)}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
+  return `<a class="card ${ad ? 'adult' : ''}" href="#${esc(encodeURIComponent(it.id))}" data-id="${esc(it.id)}">${ad ? '<span class="badge">18+</span>' : ''}${it.collection === 'local' ? '<span class="badge local">Local</span>' : ''}<div class="th ${!th && m ? 'q' : ''}" data-th="${esc(it.id)}" ${th ? `style="--b:${esc(cssImg(th))}"` : ''}>${th ? `<img loading="lazy" src="${esc(th)}" alt="">` : `<span class="ph">${esc(ph)}</span>`}${!th && m ? '<div class="gen">making preview…</div>' : ''}</div>
     <div class="meta"><b title="${esc(it.name)}">${esc(it.name)}</b><span class="sub"><span>${esc(itemType(it))}</span><span>${esc(tag.toUpperCase())}</span><span>${esc(mb(totalSize(it)))}</span></span><span class="lic" ${it.license ? `title="${esc(it.license)}"` : ''}>${esc(lic)}</span></div></a>`;
 }
 let layout = 'grid', sort = 'name';
