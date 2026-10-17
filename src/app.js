@@ -167,10 +167,11 @@ const T = {playing:false, t:0, speed:1, loop:true, dur:0, mixer:null, action:nul
 let analyser = null, actx = null, fdata = null;
 const clock = new THREE.Clock();
 
+const playIcon = on => { $('#tPlay use').setAttribute('href', on ? '#i-pause' : '#i-play'); $('#tPlay').setAttribute('aria-label', on ? 'Pause' : 'Play'); $('#tPlay').title = (on ? 'Pause' : 'Play') + ' (Space)'; };
 function stopPlayback(){
   T.playing = false; T.t = 0; T.dur = 0; T.mixer?.stopAllAction(); T.mixer = T.action = null; T.actions = [];
   if(T.audio){ T.audio.pause(); T.audio.removeAttribute('src'); T.audio.load(); T.audio = null; }
-  $('#tr').hidden = true; $('#viz').hidden = true; $('#tPlay').textContent = '▶';
+  $('#tr').hidden = true; $('#viz').hidden = true; playIcon(false);
 }
 function setupTransport(it, obj){
   const clips = obj?.animations || [];
@@ -203,7 +204,7 @@ function setTime(t){
 function play(on){
   if(!(T.dur > 0 || T.audio)) return;
   if(on && T.t >= T.dur - .05) setTime(0);
-  T.playing = on; $('#tPlay').textContent = on ? '⏸' : '▶';
+  T.playing = on; playIcon(on);
   if(T.audio){
     if(on){
       if(!actx){ actx = new AudioContext(); analyser = actx.createAnalyser(); analyser.fftSize = 128; fdata = new Uint8Array(analyser.frequencyBinCount);
@@ -315,13 +316,13 @@ function open(id){
   document.querySelectorAll('#hView [data-3d]').forEach(el => dis(el, !is3d && 'No 3D view for this asset'));
   dis($('#oSkel'), is3d ? 'This model has no rig' : 'No 3D view for this asset'); $('#skelWhy').textContent = '';
   $('#load').hidden = true; $('#msg').textContent = '';
+  inspector();
   if(isGal){
     g.innerHTML = imgs.map((f,i) => `<figure data-i="${i}"><img loading="lazy" src="${esc(f.t || url(it,f.n))}" data-full="${esc(url(it,f.n))}" alt=""><figcaption>${esc(f.n)}</figcaption></figure>`).join('');
     g.onclick = e => { const f = e.target.closest('figure'); if(f) lightbox(imgs.map(x => url(it,x.n)), +f.dataset.i); };
-    inspector();
   } else if(mocap) loadMocap(it, vmds[0]);
   else if(is3d) loadModel(it, models[0]);
-  else { setupTransport(it, null); vmdInfo(it); inspector(); }
+  else { setupTransport(it, null); vmdInfo(it); }
   resize();
 }
 async function vmdInfo(it){
@@ -349,8 +350,18 @@ function loadMocap(it, file){
 $('#fsel').onchange = e => { const f = cur.files.find(f => f.n===e.target.value); ext(f.n)==='vmd' ? loadMocap(cur, f) : loadModel(cur, f); };
 
 // ---------- inspector ----------
+const sec = (title, n, body, open = true) => `<details class="sec" ${open ? 'open' : ''}><summary>${title}${n == null ? '' : ` <span class="n">${n}</span>`}</summary>${body}</details>`;
+const row = (k, v) => `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`;      // v is HTML: callers esc() data
+const kv = (k, v) => v ? `<div class="kv"><span class="k">${k}</span><span>${v}</span></div>` : '';
+function assetInfo(it){                                                                   // catalogue metadata: only the fields that exist
+  const src = String(it.source || ''), tags = [].concat(it.tags || []);
+  return row('Name', esc(it.name)) + row('Type', esc(itemType(it)))
+    + (it.description ? `<p class="desc">${esc(it.description)}</p>` : '') + kv('Author', esc(it.author)) + kv('Licence', esc(it.license))
+    + kv('Source', /^https?:\/\//i.test(src) ? `<a href="${esc(src)}" target="_blank" rel="noopener noreferrer">${esc(src.replace(/^https?:\/\//i, '').replace(/\/$/, ''))}</a>` : esc(src))
+    + (tags.length ? `<div class="tags">${tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '');
+}
 function inspector(size){
-  let h = '';
+  let h = sec('Asset', null, assetInfo(cur));
   if(model){
     let tris = 0, verts = 0; const mats = new Set(), tex = new Set();
     for(const m of meshes){
@@ -361,24 +372,17 @@ function inspector(size){
     const usedKeys = new Set([...tex].map(t => t.split(': ').slice(1).join(': ').toLowerCase().replace(/\.[^.]+$/,'').replace(/[^a-z0-9]/g,'')));
     const unused = cur.files.filter(f => IMG.includes(ext(f.n)) && !/^gltf_embedded/.test(f.n) && !usedKeys.has(f.n.toLowerCase().replace(/\.[^.]+$/,'').replace(/[^a-z0-9]/g,''))).map(f => f.n);
     const sz = size ? [size.x,size.y,size.z].map(v => +v.toPrecision(3)).join(' × ') : '';
-    h += `<h3>Model</h3>
-      <div class="row"><span class="k">Meshes</span><span>${meshes.length}</span></div>
-      <div class="row"><span class="k">Triangles</span><span>${Math.round(tris).toLocaleString()}</span></div>
-      <div class="row"><span class="k">Vertices</span><span>${verts.toLocaleString()}</span></div>
-      <div class="row"><span class="k">Materials</span><span>${mats.size}</span></div>
-      <div class="row"><span class="k">Textures</span><span>${tex.size}</span></div>
-      <div class="row"><span class="k">Rig</span><span>${nBones ? nBones + ' bones' : 'none'}</span></div>
-      <div class="row"><span class="k">Animations</span><span>${model.animations?.length || 0}</span></div>
-      <div class="row"><span class="k">Size</span><span>${sz}</span></div>
-      ${clips.length ? `<h3>Animations <small>(click to play)</small></h3>${clips.map((c,i) => `<div class="mesh" data-clip="${i}"><span>▶ ${esc(c.name || 'clip '+(i+1))}</span><small style="color:var(--dim)">${fmt(c.duration)}</small></div>`).join('')}`
-        : nBones ? '<div style="color:var(--dim);margin-top:8px">Rigged (use Bones to see the skeleton) but has no animation clips.</div>' : ''}
-      <h3>Meshes <small>(click = select · tick = show)</small></h3><div id="meshes">${meshes.map((m,i) =>
-        `<div class="mesh" data-i="${i}"><input type="checkbox" checked data-v="${i}"><span title="${esc(m.name)}">${esc(m.name||'mesh '+i)}</span></div>`).join('')}</div>
-      <h3>Selected</h3><div id="selinfo" style="color:var(--dim)">nothing</div>
-      <h3>Textures applied</h3><div style="color:var(--dim);word-break:break-all">${[...tex].map(esc).join('<br>') || 'none'}</div>
-      ${unused.length ? `<h3>Image files not used by the model</h3><div style="color:var(--dim);word-break:break-all">${unused.map(esc).join('<br>')}</div>` : ''}`;
+    h += sec('Model stats', null, row('Meshes', meshes.length) + row('Triangles', Math.round(tris).toLocaleString()) + row('Vertices', verts.toLocaleString()) + row('Materials', mats.size)
+      + row('Textures', tex.size) + row('Rig', nBones ? nBones + ' bones' : 'none') + row('Animations', clips.length) + row('Size (scene units)', esc(sz)));
+    if(clips.length) h += sec('Animations', clips.length, clips.map((c,i) => `<div class="mesh" data-clip="${i}"><button class="plain" title="Play ${esc(c.name || 'clip '+(i+1))}">▶ ${esc(c.name || 'clip '+(i+1))}</button><small class="muted">${fmt(c.duration)}</small></div>`).join(''));
+    else if(nBones) h += '<p class="muted note">Rigged (turn on Bones under Overlays to see the skeleton) but has no animation clips.</p>';
+    h += sec('Meshes', meshes.length, `<p class="muted note">Click a name to select, tick to show or hide.</p><div id="meshes">${meshes.map((m,i) =>
+      `<div class="mesh" data-i="${i}"><input type="checkbox" checked data-v="${i}" aria-label="Show ${esc(m.name || 'mesh '+i)}"><button class="plain" aria-pressed="false" title="${esc(m.name)}">${esc(m.name||'mesh '+i)}</button></div>`).join('')}</div>`)
+      + sec('Selected', null, '<div id="selinfo"><span class="muted">nothing</span></div>')
+      + sec('Textures applied', tex.size, tex.size ? `<ul class="list">${[...tex].map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '<p class="muted">none</p>', false)
+      + (unused.length ? sec('Unused image files', unused.length, `<ul class="list">${unused.map(n => `<li>${esc(n)}</li>`).join('')}</ul>`, false) : '');
   }
-  h += `<h3>Files</h3><div class="files">${cur.files.map(f => `<div><a href="${esc(url(cur,f.n))}" download title="${esc(f.n)}">${esc(f.n)}</a><small>${mb(f.s)}</small></div>`).join('')}</div>`;
+  h += sec('Files', cur.files.length, `<div class="files">${cur.files.map(f => `<div><a href="${esc(url(cur,f.n))}" download title="${esc(f.n)}">${esc(f.n)}</a><small>${mb(f.s)}</small></div>`).join('')}</div>`);
   $('#inspBody').innerHTML = h;
 }
 $('#inspBody').addEventListener('click', e => {
@@ -389,13 +393,11 @@ $('#inspBody').addEventListener('click', e => {
 });
 function select(m){
   clearSel(); sel.mesh = m;
-  document.querySelectorAll('.mesh').forEach(r => r.classList.toggle('sel', m && meshes[+r.dataset.i]===m));
-  if(!m){ $('#selinfo') && ($('#selinfo').textContent = 'nothing'); return; }
+  document.querySelectorAll('.mesh[data-i]').forEach(r => { const on = !!m && meshes[+r.dataset.i]===m; r.classList.toggle('sel', on); r.querySelector('button').setAttribute('aria-pressed', on); });
+  if(!m){ $('#selinfo') && ($('#selinfo').innerHTML = '<span class="muted">nothing</span>'); return; }
   sel.box = new THREE.BoxHelper(m, 0xffd166); scene.add(sel.box);
   const g = m.geometry, mats = [].concat(m.userData.m0);
-  $('#selinfo').innerHTML = `<div class="row"><span class="k">Name</span><span>${esc(m.name||'(unnamed)')}</span></div>
-    <div class="row"><span class="k">Triangles</span><span>${Math.round((g.index?g.index.count:g.attributes.position.count)/3).toLocaleString()}</span></div>
-    <div class="row"><span class="k">Material</span><span>${mats.map(x=>esc(x.name||'(unnamed)')).join(', ')}</span></div>`;
+  $('#selinfo').innerHTML = row('Name', esc(m.name||'(unnamed)')) + row('Triangles', Math.round((g.index?g.index.count:g.attributes.position.count)/3).toLocaleString()) + row('Material', mats.map(x=>esc(x.name||'(unnamed)')).join(', '));
 }
 const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(); let down = null;
 const pick = e => { const r = renderer.domElement.getBoundingClientRect(); ptr.set((e.clientX-r.left)/r.width*2-1, -((e.clientY-r.top)/r.height)*2+1); ray.setFromCamera(ptr, camera); return ray.intersectObjects(meshes.filter(m=>m.visible), false)[0]; };
@@ -608,15 +610,20 @@ const MEADOW_DEF = {height:50, density:70, wind:45, speed:50, gust:35, dir:35, d
 const SC_DEF = {meadow:{...MEADOW_DEF}, on:false, kind:'mountain', seed:'', zoom:1.3, v:0, parallax:40, mist:55, dblur:2, fore:60, shadow:45, sepia:25, hue:0, bright:100, contrast:100, sat:100, light:100};
 const SC = {...SC_DEF, meadow:{...MEADOW_DEF}}; try{ Object.assign(SC, JSON.parse(localStorage.getItem('scene') || '{}')); }catch(e){}
 SC.meadow = {...MEADOW_DEF, ...SC.meadow};                // fill in params added since the settings were saved
-const SLIDERS = [['zoom','Zoom',.8,3,.05],['v','Vertical',-300,300,5],['parallax','Parallax',0,100,1],['mist','Distance haze',0,100,1],['dblur','Depth blur',0,8,.5],
-  ['fore','Foreground ink',0,100,1],['shadow','Ground shadow',0,100,1],['sepia','Warmth',0,100,1],['hue','Hue',-180,180,1],['bright','Brightness',40,160,1],
-  ['contrast','Contrast',40,160,1],['sat','Colour',0,200,1],['light','Model light',20,220,5]];
+// [key, label, min, max, step, group]: the panel shows a small heading whenever the group changes
+const SLIDERS = [['zoom','Zoom',.8,3,.05,'Composition'],['v','Vertical',-300,300,5,'Composition'],['parallax','Parallax',0,100,1,'Composition'],
+  ['mist','Distance haze',0,100,1,'Depth'],['dblur','Depth blur',0,8,.5,'Depth'],['fore','Foreground ink',0,100,1,'Depth'],['shadow','Ground shadow',0,100,1,'Depth'],
+  ['sepia','Warmth',0,100,1,'Colour & tone'],['hue','Hue',-180,180,1,'Colour & tone'],['bright','Brightness',40,160,1,'Colour & tone'],['contrast','Contrast',40,160,1,'Colour & tone'],['sat','Colour',0,200,1,'Colour & tone'],
+  ['light','Model light',20,220,5,'Lighting']];
 const PRESETS = {Ink:{sat:0,sepia:0,bright:100,contrast:110,hue:0}, Paper:{sat:70,sepia:35,bright:100,contrast:100,hue:0},
   Dusk:{sepia:40,hue:-20,bright:70,contrast:110,sat:90}, Mist:{mist:90,dblur:4,bright:112,contrast:75,sat:60,sepia:15,hue:0}};
-const MSLIDERS = [['height','Grass height',0,100,1],['density','Density',5,100,1],['wind','Wind',0,100,1],['speed','Wind speed',0,100,1],['gust','Gusts',0,100,1],['dir','Wind direction',0,360,5],
-  ['dry','Dryness',0,100,1],['rough','Terrain relief',0,100,1],['sun','Sun height',3,80,1],
-  ['flowers','Wildflowers',0,100,1],['weeds','Weeds',0,100,1],['leaves','Fallen leaves',0,100,1],['fall','Drifting leaves',0,100,1],['clouds','Clouds',0,100,1],['wildlife','Wildlife (animals, birds)',0,100,1],['insects','Insects (low sun = fireflies)',0,100,1],
-  ['pond','Pond life (lotus, lilies, reeds)',0,100,1],['weather','Weather (clear → rain)',0,100,1],['season','Season (spring→winter)',0,100,1]];
+const MSLIDERS = [['height','Grass height',0,100,1,'Terrain & grass'],['density','Density',5,100,1,'Terrain & grass'],['rough','Terrain relief',0,100,1,'Terrain & grass'],['dry','Dryness',0,100,1,'Terrain & grass'],
+  ['wind','Wind',0,100,1,'Terrain & grass'],['speed','Wind speed',0,100,1,'Terrain & grass'],['gust','Gusts',0,100,1,'Terrain & grass'],['dir','Wind direction',0,360,5,'Terrain & grass'],
+  ['flowers','Wildflowers',0,100,1,'Plants'],['weeds','Weeds',0,100,1,'Plants'],['leaves','Fallen leaves',0,100,1,'Plants'],['fall','Drifting leaves',0,100,1,'Plants'],
+  ['pond','Pond life (lotus, lilies, reeds)',0,100,1,'Water'],
+  ['sun','Sun height',3,80,1,'Sky & weather'],['clouds','Clouds',0,100,1,'Sky & weather'],['weather','Weather (clear → rain)',0,100,1,'Sky & weather'],['season','Season (spring→winter)',0,100,1,'Sky & weather'],
+  ['wildlife','Wildlife (animals, birds)',0,100,1,'Wildlife & insects'],['insects','Insects (low sun = fireflies)',0,100,1,'Wildlife & insects'],
+  ['light','Model light',20,220,5,'Lighting']];
 const BANDS = [[-1e9,300],[300,400],[400,500],[500,620],[620,1e9]], PAR = [.08,.22,.42,.7,1.1], BLUR = [1,.7,.4,.15,0], HAZE = [.8,.55,.35,.15], LW0 = 4200, LH0 = 700;
 let LW = LW0, LH = LH0, lyEls = [], hzEls = [];
 const sceneSave = () => { try{ localStorage.setItem('scene', JSON.stringify(SC)); }catch(e){} };
@@ -672,6 +679,7 @@ function layersBuild(){
   hazeAndLayers(BANDS.slice(0, 4).map(svg), svg(BANDS[4]));
 }
 ssi.onload = ssiLoaded;
+const meadowRebuild = () => { insects?.dispose(); insects = null; fauna?.dispose(); fauna = null; meadow?.dispose(); meadow = null; meadowApply(); };
 async function meadowApply(){                           // the 3D meadow lives only while Scene is on, kind = Meadow and a model is mounted
   const want = () => SC.on && SC.kind === 'meadow' && model && minfo;
   if(!want()){ if(insects){ insects.dispose(); insects = null; } if(fauna){ fauna.dispose(); fauna = null; } if(meadow){ meadow.dispose(); meadow = null; hemi.color.set(0xffffff); hemi.groundColor.set(0x555566); } return; }
@@ -725,14 +733,20 @@ function sceneApply(){
 controls.addEventListener('change', () => SC.on && sceneApply());
 new ResizeObserver(() => SC.on && sceneApply()).observe(stage);
 function scenePanel(){
-  $('#scenePanel').innerHTML = `<label><input type="checkbox" id="scOn" ${SC.on?'checked':''}> <b style="color:var(--fg)">Shan-shui scenery</b></label>
-    <div class="r">${Object.entries(KINDS).map(([k, l]) => `<button data-kind="${esc(k)}" class="${SC.kind === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
-    <div class="r"><input id="seed" value="${esc(SC.seed)}" title="seed: same seed = same landscape"><button id="scGo">Go</button><button id="scDice" title="random landscape">🎲</button></div>
+  const meadowKind = SC.kind === 'meadow', list = meadowKind ? MSLIDERS : SLIDERS; let grp = '';
+  const sliders = list.map(([k,l,a,b,st,g]) => {
+    const m = meadowKind && k !== 'light', head = g !== grp ? `<h3>${esc(grp = g)}</h3>` : '';
+    return `${head}<label><span>${esc(l)}</span><input type="range" data-${m ? 'm' : 'k'}="${esc(k)}" min="${a}" max="${b}" step="${st}" value="${esc(m ? SC.meadow[k] : SC[k])}"></label>`;
+  }).join('');
+  $('#scenePanel').innerHTML = `<div class="sp-head"><h2>Scene</h2><button id="scClose" class="ghost icon" title="Close (Esc)" aria-label="Close scene panel"><svg class="i"><use href="#i-close"/></svg></button></div>
+    <label><input type="checkbox" id="scOn" ${SC.on?'checked':''}> <b>Use scene backdrop</b></label>
+    <div class="r" role="group" aria-label="Backdrop type">${Object.entries(KINDS).map(([k, l]) => `<button data-kind="${esc(k)}" aria-pressed="${SC.kind === k}">${esc(l)}</button>`).join('')}</div>
+    <div class="r"><input id="seed" aria-label="Seed: same seed, same landscape" value="${esc(SC.seed)}" title="seed: same seed = same landscape"><button id="scGo">Go</button><button id="scDice" title="Random landscape" aria-label="Random landscape">🎲</button></div>
     <div class="r"><button id="scL">◀ scroll</button><button id="scR">scroll ▶</button></div>
-    ${SC.kind === 'meadow' ? `<h4>Meadow</h4>${MSLIDERS.map(([k,l,a,b,st]) => `<label><span>${esc(l)}</span><input type="range" data-m="${esc(k)}" min="${a}" max="${b}" step="${st}" value="${esc(SC.meadow[k])}"></label>`).join('')}<label><span>Model light</span><input type="range" data-k="light" min="20" max="220" step="5" value="${esc(SC.light)}"></label>`
-    : `<h4>Look</h4><div class="r">${Object.keys(PRESETS).map(k => `<button data-p="${esc(k)}">${esc(k)}</button>`).join('')}<button id="scReset">Reset</button></div>
-    ${SLIDERS.map(([k,l,a,b,st]) => `<label><span>${esc(l)}</span><input type="range" data-k="${esc(k)}" min="${a}" max="${b}" step="${st}" value="${esc(SC[k])}"></label>`).join('')}`}
-    <div style="color:var(--dim);font-size:11px;margin-top:6px">${SC.kind === 'meadow' ? 'Live 3D meadow: tufted grass, wildflowers, weeds, leaves, clouds. Wind-swept, parted by the model, real shadows. Same seed = same meadow.' : 'Five depth layers with parallax, haze and blur; the nearest ink drifts in front of the model; sun shadow + ink wash ground it. "Shot" saves the model on a transparent background.'}</div>`;
+    ${meadowKind ? '' : `<h3>Presets</h3><div class="r">${Object.keys(PRESETS).map(k => `<button data-p="${esc(k)}">${esc(k)}</button>`).join('')}</div>`}
+    ${sliders}
+    <div class="r"><button id="scReset">Reset to defaults</button></div>
+    <p class="note muted">${meadowKind ? 'Live 3D meadow: tufted grass, wildflowers, weeds, leaves, clouds. Wind-swept, parted by the model, real shadows. Same seed = same meadow.' : 'Five depth layers with parallax, haze and blur; the nearest ink drifts in front of the model; sun shadow + ink wash ground it. "Shot" saves the model on a transparent background.'}</p>`;
 }
 const scEnable = on => { SC.on = on; if(on && SC.kind !== 'meadow' && !ssi.getAttribute('src')) ssiLoad(); sceneSave(); sceneApply(); };
 $('#bScene').onclick = () => { const p = $('#scenePanel'); p.hidden = !p.hidden; if(!p.hidden) scenePanel(); sceneApply(); };
@@ -742,7 +756,7 @@ $('#scenePanel').addEventListener('input', e => {
     const k = e.target.dataset.m; SC.meadow[k] = +e.target.value; sceneSave();
     if(k === 'wildlife'){ faunaApply(); return; }
     if(k === 'insects'){ insectsApply(); return; }
-    if(k === 'rough'){ clearTimeout(window.__rt); window.__rt = setTimeout(() => { insects?.dispose(); insects = null; fauna?.dispose(); fauna = null; meadow?.dispose(); meadow = null; meadowApply(); }, 250); }
+    if(k === 'rough'){ clearTimeout(window.__rt); window.__rt = setTimeout(meadowRebuild, 250); }
     else if(meadow){ meadow.setParams(SC.meadow); meadowSun(); if(k === 'sun') insectsApply(); }
     return;
   }
@@ -751,13 +765,17 @@ $('#scenePanel').addEventListener('input', e => {
 });
 $('#scenePanel').addEventListener('click', e => {
   const t = e.target;
-  const reseed = () => { SC.on = true; sceneSave(); if(SC.kind === 'meadow'){ insects?.dispose(); insects = null; fauna?.dispose(); fauna = null; meadow?.dispose(); meadow = null; meadowApply(); } else ssiLoad(); };
+  const reseed = () => { SC.on = true; sceneSave(); if(SC.kind === 'meadow') meadowRebuild(); else ssiLoad(); };
   if(t.id === 'scGo'){ SC.seed = $('#seed').value || SC.seed; reseed(); }
   else if(t.id === 'scDice'){ SC.seed = String(Math.floor(Math.random()*1e6)); const sd = $('#seed'); if(sd) sd.value = SC.seed; reseed(); }
   else if(t.id === 'scL' || t.id === 'scR'){ try{ ssi.contentWindow.xcroll(t.id === 'scL' ? -300 : 300); layersBuild(); }catch(err){} }
   else if(t.dataset.kind){ SC.kind = t.dataset.kind; SC.on = true; clearLayers(); if(SC.kind !== 'meadow') ssiLoad(); sceneSave(); scenePanel(); }
   else if(t.dataset.p){ Object.assign(SC, PRESETS[t.dataset.p]); scEnable(true); scenePanel(); }
-  else if(t.id === 'scReset'){ const keep = {on:SC.on, seed:SC.seed}; Object.assign(SC, SC_DEF, keep); sceneSave(); scenePanel(); }
+  else if(t.id === 'scReset'){                          // this kind's sliders only; kind, seed and on/off stay
+    if(SC.kind === 'meadow'){ SC.meadow = {...MEADOW_DEF}; SC.light = SC_DEF.light; meadowRebuild(); } else for(const [k] of SLIDERS) SC[k] = SC_DEF[k];
+    sceneSave(); scenePanel();
+  }
+  else if(t.closest('#scClose')){ $('#scenePanel').hidden = true; $('#bScene').focus(); }
   sceneApply();
 });
 if(SC.on) ssiLoad();

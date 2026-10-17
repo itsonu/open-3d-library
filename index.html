@@ -89,17 +89,17 @@
 
 <main id="viewer" hidden>
   <div id="center">
-    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="wash"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="err" role="alert" hidden><div class="panel"><h2>Couldn't open this file</h2><p id="errMsg"></p><code id="errFile"></code><div class="btns"><button id="eBack" class="primary">Back to library</button><button id="eOpen">Open another file…</button></div></div></div><div id="load" role="status" hidden><div class="panel"><h2 id="loadT">Loading…</h2><progress id="loadP" max="100" aria-label="Loading progress"></progress><span class="pct" id="loadPct" aria-hidden="true"></span></div></div><canvas id="viz" width="1200" height="120" hidden></canvas>
+    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="wash"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" role="region" aria-label="Scene settings" hidden></div><div id="msg"></div><div id="err" role="alert" hidden><div class="panel"><h2>Couldn't open this file</h2><p id="errMsg"></p><code id="errFile"></code><div class="btns"><button id="eBack" class="primary">Back to library</button><button id="eOpen">Open another file…</button></div></div></div><div id="load" role="status" hidden><div class="panel"><h2 id="loadT">Loading…</h2><progress id="loadP" max="100" aria-label="Loading progress"></progress><span class="pct" id="loadPct" aria-hidden="true"></span></div></div><canvas id="viz" width="1200" height="120" hidden></canvas>
       <button id="bDet" aria-controls="insp" title="Show asset details (I)"><svg class="i"><use href="#i-up"/></svg>Details</button>
       <div id="hint">drag = rotate · right-drag / shift-drag = move · wheel = zoom · click = pick mesh · double-click = focus</div></div>
     <div id="gallery"></div>
-    <div id="tr" hidden>
-      <button id="tPlay" title="Space">▶</button><button id="tStop" title="Rewind">⏮</button>
-      <input id="seek" type="range" min="0" max="1000" value="0"><span id="time">0:00 / 0:00</span>
-      <select id="tSpeed" title="Speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>1.5</option><option>2</option></select>
+    <div id="tr" role="group" aria-label="Animation controls" hidden>
+      <button id="tPlay" class="icon" title="Play (Space)" aria-label="Play"><svg class="i"><use href="#i-play"/></svg></button><button id="tStop" class="icon" title="Rewind to start" aria-label="Rewind to start"><svg class="i"><use href="#i-rewind"/></svg></button>
+      <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Seek"><span id="time">0:00 / 0:00</span>
+      <select id="tSpeed" title="Playback speed" aria-label="Playback speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select>
       <button id="tLoop" aria-pressed="true" title="Loop">Loop</button>
-      <select id="tClip" hidden title="Animation clip"></select>
-      <span id="volw" style="color:var(--dim)">vol <input id="vol" type="range" min="0" max="1" step="0.05" value="0.8"></span>
+      <select id="tClip" hidden title="Animation clip" aria-label="Animation clip"></select>
+      <label id="volw" class="muted">Volume <input id="vol" type="range" min="0" max="1" step="0.05" value="0.8"></label>
     </div>
   </div>
   <aside id="insp" aria-label="Inspector"><div class="sheet-h"><b>Details</b><button id="bDetX" class="ghost icon" title="Close details" aria-label="Close details"><svg class="i"><use href="#i-close"/></svg></button></div><div id="inspBody"></div></aside>
