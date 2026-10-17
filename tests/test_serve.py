@@ -100,5 +100,86 @@ class ServeTest(unittest.TestCase):
         r, d = self.req('GET', u, {'Range': 'bytes=500-600'}); self.assertEqual((r.status, r.getheader('Content-Range')), (416, 'bytes */100'))
 
 
+class TwoRootsTest(unittest.TestCase):
+    """--assets (public) plus --local-assets (private): ownership, thumbnails, traversal, catalogue rules."""
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        t = Path(cls.tmp.name)
+        cls.pub, cls.loc, cls.dist = t / 'public', t / 'local', t / 'dist'
+        for root, ids in ((cls.pub, ['prop-box', 'prop-dup']), (cls.loc, ['outfit-secret', 'prop-dup'])):
+            for i in ids:
+                (root / i).mkdir(parents=True)
+                (root / i / f'{i}.glb').write_bytes(root.name.encode() + b':' + i.encode())
+        (cls.loc / '.thumbs').mkdir(); (cls.loc / '.thumbs' / 'outfit-secret.jpg').write_bytes(JPEG)
+        (cls.loc / 'note.txt').write_text('loose private file')
+        (cls.pub / 'prop-box' / 'to-local').symlink_to(cls.loc / 'outfit-secret' / 'outfit-secret.glb')   # symlink out of its root
+        cls.dist.mkdir(); (cls.dist / 'index.html').write_text('x')
+        serve.Handler.log_message = lambda *a: None
+        cls.srv = serve.make_server(cls.dist, cls.pub, port=0, local=cls.loc)
+        cls.port = cls.srv.server_address[1]
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown(); cls.srv.server_close(); cls.tmp.cleanup()
+
+    def req(self, method, path, headers=None, body=None):
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        c.putrequest(method, path, skip_host=True); c.putheader('Host', f'127.0.0.1:{self.port}')
+        for k, v in (headers or {}).items(): c.putheader(k, v)
+        c.endheaders(body)
+        r = c.getresponse(); data = r.read(); c.close()
+        return r, data
+
+    def items(self):
+        return {i['id']: i for i in json.loads(self.req('GET', '/catalog.json')[1])['items']}
+
+    def test_catalog_collection_and_duplicates(self):
+        it = self.items()
+        self.assertEqual(set(it), {'prop-box', 'prop-dup', 'outfit-secret'})
+        self.assertNotIn('collection', it['prop-box'])
+        self.assertEqual(it['outfit-secret']['collection'], 'local')
+        self.assertNotIn('collection', it['prop-dup'])                       # duplicate id: the first (public) root wins
+        self.assertEqual(self.req('GET', '/assets/prop-dup/prop-dup.glb')[1], b'public:prop-dup')
+
+    def test_ownership(self):
+        self.assertEqual(self.req('GET', '/assets/prop-box/prop-box.glb')[1], b'public:prop-box')
+        self.assertEqual(self.req('GET', '/assets/outfit-secret/outfit-secret.glb')[1], b'local:outfit-secret')
+        self.assertEqual(self.req('GET', '/assets/prop-box/outfit-secret.glb')[0].status, 404)     # file of another root's item
+        self.assertEqual(self.req('GET', '/assets/note.txt')[0].status, 404)                        # loose file at a root is not an item
+        r, d = self.req('GET', '/assets/.thumbs/outfit-secret.jpg'); self.assertEqual((r.status, d), (200, JPEG))
+
+    def test_thumb_written_to_owner(self):
+        ok = {'X-O3DL': '1', 'Content-Length': str(len(JPEG))}
+        self.assertEqual(self.req('POST', '/thumb/prop-box.jpg', ok, JPEG)[0].status, 204)
+        self.assertEqual(self.req('POST', '/thumb/prop-dup.jpg', ok, JPEG)[0].status, 204)
+        self.assertTrue((self.pub / '.thumbs' / 'prop-box.jpg').is_file())
+        self.assertTrue((self.pub / '.thumbs' / 'prop-dup.jpg').is_file())
+        self.assertFalse((self.loc / '.thumbs' / 'prop-box.jpg').exists())
+        self.assertFalse((self.loc / '.thumbs' / 'prop-dup.jpg').exists())
+        self.assertEqual(self.req('POST', '/thumb/outfit-secret.jpg', ok, JPEG)[0].status, 204)
+        self.assertFalse((self.pub / '.thumbs' / 'outfit-secret.jpg').exists())
+        self.assertEqual(self.items()['outfit-secret']['thumb'], 'assets/.thumbs/outfit-secret.jpg')
+
+    def test_traversal_across_roots(self):
+        n = self.loc.name
+        for p in [f'/assets/../{n}/outfit-secret/outfit-secret.glb', f'/assets/%2e%2e/{n}/outfit-secret/outfit-secret.glb',
+                  f'/assets/prop-box/..%2f..%2f{n}/outfit-secret/outfit-secret.glb', f'/assets/prop-box/../outfit-secret/outfit-secret.glb',
+                  f'/assets/.thumbs/..%2f{n}/note.txt', '/assets/.thumbs/prop-box/../../outfit-secret/outfit-secret.glb',
+                  '/assets/prop-box/to-local']:                                 # the last is a symlink from the public root into the local one
+            self.assertEqual(self.req('GET', p)[0].status, 404, p)
+
+    def test_write_catalog_excludes_local(self):
+        out = Path(self.tmp.name) / 'catalog.json'
+        argv = sys.argv
+        sys.argv = ['serve.py', '--assets', str(self.pub), '--local-assets', str(self.loc), '--write-catalog', str(out)]
+        try: serve.main()
+        finally: sys.argv = argv
+        ids = {i['id'] for i in json.loads(out.read_text())['items']}
+        self.assertEqual(ids, {'prop-box', 'prop-dup'})
+        self.assertNotIn('outfit-secret', out.read_text())
+
+
 if __name__ == '__main__':
     unittest.main()

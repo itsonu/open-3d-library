@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Optional local library server: serves the built app (./dist) and a private asset folder.
 
-  python3 serve.py [--assets DIR] [--port 8000] [--host 127.0.0.1] [--no-browser]
+  python3 serve.py [--assets DIR]... [--local-assets DIR]... [--port 8000] [--host 127.0.0.1] [--no-browser]
 
-/ -> dist/   /assets/ -> the asset folder   /catalog.json -> generated from the asset folder
+/ -> dist/   /assets/ -> the asset folders   /catalog.json -> generated from the asset folders
+--assets and --local-assets can be repeated; the catalogue is the items of every root in order (the first root wins on a duplicate id,
+with a warning). Items from --local-assets get "collection": "local"; --write-catalog never includes them (private, never published).
+/assets/<id>/... and the thumbnails of <id> resolve inside the one root that owns <id>.
 Asset folders are named <type>-<name>; optional adult.json (list of ids), fixes.json (id -> texture overrides)
 and per-folder meta.json (name, description, license, source, author, tags, sensitive, textureOverrides) are merged in.
-Only files inside dist/ and the asset folder are served (real paths, so symlinks cannot escape); dotfiles are never served,
+Only files inside dist/ and the owning asset folder are served (real paths, so symlinks cannot escape); dotfiles are never served,
 except thumbnails under <assets>/.thumbs/.
 """
 import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, threading, time, webbrowser
@@ -32,24 +35,43 @@ def inside(p, root):
     except (OSError, ValueError): return False
 
 
+def item_dir(root, name):
+    """root/name if it is an asset folder (<type>-<name>, no dotfiles, real path inside root), else None."""
+    d = root / name
+    return d if '-' in name and not name.startswith('.') and d.is_dir() and inside(d, root) else None
+
+
 class Catalog:
-    """catalog.json for the asset folder, cached; rebuilt when the folder's mtime changes or after 5 s."""
-    def __init__(self, root):
-        self.root, self.lock, self.stamp, self.body = root, threading.Lock(), None, b'{"items":[]}'
+    """catalog.json for the asset roots [(path, is_local)], cached; rebuilt when a root's mtime changes or after 5 s."""
+    def __init__(self, roots):
+        self.roots, self.lock, self.stamp, self.body, self.warned = roots, threading.Lock(), None, b'{"items":[]}', set()
 
     def invalidate(self): self.stamp = None
 
     def get(self):
         with self.lock:
-            try: mt = self.root.stat().st_mtime_ns
-            except OSError: mt = None
+            mt = []
+            for r, _ in self.roots:
+                try: mt.append(r.stat().st_mtime_ns)
+                except OSError: mt.append(None)
             now = time.monotonic()
             if self.stamp is None or self.stamp[0] != mt or now - self.stamp[1] > 5:
                 self.body, self.stamp = json.dumps({'items': self.build()}).encode(), (mt, now)
             return self.body
 
     def build(self):
-        root = self.root
+        items, seen = [], {}
+        for root, local in self.roots:
+            for it in self.build_root(root, local):
+                if it['id'] in seen:
+                    if (it['id'], str(root)) not in self.warned:
+                        self.warned.add((it['id'], str(root))); print(f"warning: duplicate id {it['id']} in {root} ignored (first root {seen[it['id']]} wins)", file=sys.stderr, flush=True)
+                    continue
+                seen[it['id']] = root; items.append(it)
+        return items
+
+    @staticmethod
+    def build_root(root, local=False):
         if not root.is_dir(): return []
         adult = read_json(root / 'adult.json', [])
         fixes = read_json(root / 'fixes.json', {})
@@ -69,6 +91,7 @@ class Catalog:
                     if t.is_file(): e['t'] = 'assets/.thumbs/' + quote(f'{d.name}/{t.name}')
                 files.append(e)
             item = {'id': d.name, 'type': kind, 'name': name, 'files': files}
+            if local: item['collection'] = 'local'
             meta = read_json(d / 'meta.json', {})
             if not isinstance(meta, dict): meta = {}
             for k, typ in META_KEYS.items():
@@ -117,7 +140,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(code, msg)
 
     def resolve(self):
-        """URL path -> real file under dist/ or the asset folder, else None."""
+        """URL path -> real file under dist/ or the asset root that owns the id, else None."""
         path = unquote(urlsplit(self.path).path)
         if '\0' in path or '\\' in path: return None
         parts = [p for p in path.split('/') if p]
@@ -125,7 +148,12 @@ class Handler(SimpleHTTPRequestHandler):
         assets = bool(parts) and parts[0] == 'assets'
         if assets: parts = parts[1:]
         if any(p.startswith('.') for p in parts) and not (assets and THUMB_RE.fullmatch('/'.join(parts))): return None
-        base = self.server.assets if assets else self.server.dist
+        if assets:
+            if parts[:1] == ['.thumbs'] and len(parts) > 1:      # thumbnails live in the root that owns the id
+                base = self.server.owner(parts[1][:-4] if len(parts) == 2 else parts[1])
+            else: base = self.server.owner(parts[0]) if parts else None
+            if not base: return None
+        else: base = self.server.dist
         try:
             p = base.joinpath(*parts)
             if p.is_dir() and not assets: p = p / 'index.html'      # no directory listings; dist directories serve their index
@@ -168,9 +196,9 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):                                         # the page saves model previews here: POST /thumb/<id>.jpg
         if not self.host_ok(): return self.reject(403, 'Bad Host header')
         if self.headers.get('X-O3DL') != '1': return self.reject(403, 'Missing X-O3DL header')   # custom header: plain cross-site form posts cannot send it
-        assets = self.server.assets
         m = re.fullmatch(r'/thumb/([A-Za-z0-9_-]+)\.jpg', self.path)
-        if not m or not (assets / m[1]).is_dir() or not inside(assets / m[1], assets): return self.reject(404)
+        assets = m and self.server.owner(m[1])
+        if not assets: return self.reject(404)
         cl = self.headers.get('Content-Length')
         if cl is None: return self.send_error(411)
         if not re.fullmatch(r'\d+', cl.strip()): return self.send_error(400, 'Bad Content-Length')
@@ -198,12 +226,19 @@ class Server(ThreadingHTTPServer):
     request_queue_size = 128
     daemon_threads = True
 
+    def owner(self, id):
+        """The first root that has an asset folder <id>, else None."""
+        return next((r for r, _ in self.roots if item_dir(r, id)), None)
 
-def make_server(dist, assets, host='127.0.0.1', port=8000, check_host=True):
+
+def make_server(dist, assets, host='127.0.0.1', port=8000, check_host=True, local=()):
+    """assets / local: one folder or a list of folders; local ones are private (items get collection: local)."""
+    one = lambda x: [x] if isinstance(x, (str, Path)) else list(x)
     Server.address_family = socket.AF_INET6 if ':' in host else socket.AF_INET
     srv = Server((host, port), Handler)
-    srv.dist, srv.assets = Path(dist).resolve(), Path(assets).resolve()
-    srv.catalog = Catalog(srv.assets)
+    srv.dist = Path(dist).resolve()
+    srv.roots = [(Path(r).resolve(), False) for r in one(assets)] + [(Path(r).resolve(), True) for r in one(local)]
+    srv.catalog = Catalog(srv.roots)
     p = srv.server_address[1]
     names = ('localhost', '127.0.0.1', '[::1]')            # DNS-rebinding protection: only loopback names are accepted as Host
     srv.hosts = ({f'{h}:{p}' for h in names} | (set(names) if p == 80 else set())) if check_host else None
@@ -212,20 +247,23 @@ def make_server(dist, assets, host='127.0.0.1', port=8000, check_host=True):
 
 def main():
     ap = argparse.ArgumentParser(description='Serve the built app and a private asset folder.')
-    ap.add_argument('--assets', default=str(HERE / 'public' / 'assets'), help='asset folder (default: ./public/assets)')
+    ap.add_argument('--assets', action='append', help='asset folder, repeatable (default: ./public/assets)')
+    ap.add_argument('--local-assets', action='append', default=[], metavar='DIR', help='private asset folder, repeatable: items get collection "local", never written to the catalog file')
     ap.add_argument('--port', type=int, default=8000)
     ap.add_argument('--host', default='127.0.0.1')
     ap.add_argument('--no-browser', action='store_true')
     ap.add_argument('--dist', default=str(HERE / 'dist'), help=argparse.SUPPRESS)
     ap.add_argument('--write-catalog', metavar='FILE', help='write the catalog of --assets to FILE and exit (used for public/catalog.json)')
     a = ap.parse_args()
+    a.assets = a.assets or [str(HERE / 'public' / 'assets')]
     if a.write_catalog:
-        items = Catalog(Path(a.assets).resolve()).build()
+        items = Catalog([(Path(r).resolve(), False) for r in a.assets]).build()      # public roots only: --local-assets is never published
         Path(a.write_catalog).write_text(json.dumps({'items': items}, indent=1, ensure_ascii=False) + '\n', encoding='utf-8')
         return print(f'{len(items)} items -> {a.write_catalog}')
     if not Path(a.dist).is_dir(): print('dist/ not found: run `npm run build` first (until then only /assets/ and /catalog.json work).', file=sys.stderr)
-    if not Path(a.assets).is_dir(): print(f'asset folder not found: {a.assets}', file=sys.stderr)
-    srv = make_server(a.dist, a.assets, a.host, a.port, check_host=a.host in LOOPBACK)
+    for r in a.assets + a.local_assets:
+        if not Path(r).is_dir(): print(f'asset folder not found: {r}', file=sys.stderr)
+    srv = make_server(a.dist, a.assets, a.host, a.port, check_host=a.host in LOOPBACK, local=a.local_assets)
     print('building catalog (the first run makes image thumbnails on macOS, can take a minute)...', flush=True)
     n = len(json.loads(srv.catalog.get())['items'])
     url = f'http://{"[" + a.host + "]" if ":" in a.host else a.host}:{srv.server_address[1]}'
