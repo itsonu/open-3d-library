@@ -73,9 +73,15 @@ Follow what the repo already does.
 ```sh
 npm run test:py      # Python unittest for serve.py
 npm run test:unit    # Node unit tests
+npm run check        # private-file guard + both suites above (fast; does not run the browser tests)
+npm run test:e2e     # Playwright smoke tests in Chromium (builds, then serves dist/ on 127.0.0.1:4173)
 ```
 
-If a script is not in `package.json` yet, the Python tests run with `python3 -m unittest discover -s tests`. Browser smoke tests (Playwright) are planned. Before opening a pull request, also run `npm run build` and open the app in a browser with the console visible: there must be no errors.
+If a script is not in `package.json` yet, the Python tests run with `python3 -m unittest discover -s tests`.
+
+The browser tests live in `tests/e2e/` and need Chromium once: `npx playwright install chromium` (on Linux add `--with-deps`). They use software WebGL (SwiftShader), so they run without a GPU, and fail on any console error. Run one test with `npx playwright test -g meadow`; on a failure open the trace with `npx playwright show-trace test-results/<test>/trace.zip` or `npx playwright show-report` (CI uploads both). `E2E_BASE_PATH=/open-3d-library/ npm run test:e2e` serves the build under a sub-path, as GitHub Pages does.
+
+`npm run screenshots` rebuilds the images in `docs/images/` (add a name to render one: `npm run screenshots -- meadow`). Before opening a pull request, also run `npm run build` and `npm run test:e2e`.
 
 Add or update a test when you change `serve.py` or logic that can be tested without a browser.
 
