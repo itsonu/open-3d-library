@@ -2,14 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none' stroke='%236aa5ff' stroke-width='2.5' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M16 3 4 9.5v13L16 29l12-6.5v-13zM4 9.5 16 16l12-6.5M16 16v13'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#171a21">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Motion Library</title>
+<title>Open 3D Library</title>
 <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
 <header id="hLib">
-  <h1>Motion Library</h1>
+  <h1>Open 3D Library</h1>
   <span id="chips"></span>
   <button id="bOpenLib" title="Open files or a folder (O)">Open…</button>
   <input id="q" placeholder="Search…  ( / )" style="width:200px">
@@ -36,12 +37,12 @@
   <button id="bInsp" class="on" title="Inspector (I)">Inspect</button>
 </header>
 
-<div id="notice" role="status" hidden><span></span><button id="nClose" title="Dismiss">Dismiss</button></div>
+<div id="notice" role="status" hidden><span></span><button id="nClose" title="Dismiss this message">Dismiss</button></div>
 <div id="lib"></div>
 
 <div id="viewer" hidden>
   <div id="center">
-    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="wash"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="err" role="alert" hidden><div><p id="errMsg"></p><p id="errFile"></p><button id="eBack">Back to library</button> <button id="eOpen">Open another file…</button></div></div><div id="load" hidden></div><canvas id="viz" width="1200" height="120" hidden></canvas>
+    <div id="stage"><div id="back" hidden><iframe id="ssi" title="shan-shui-inf generator"></iframe><div id="lys"></div><div id="wash"></div><div id="paper"></div></div><div id="fore" hidden></div><div id="scenePanel" hidden></div><div id="msg"></div><div id="err" role="alert" hidden><div class="panel"><h2>Couldn't open this file</h2><p id="errMsg"></p><code id="errFile"></code><div class="btns"><button id="eBack" class="primary">Back to library</button><button id="eOpen">Open another file…</button></div></div></div><div id="load" role="status" hidden><div class="panel"><h2 id="loadT">Loading…</h2><progress id="loadP" max="100" aria-label="Loading progress"></progress><span class="pct" id="loadPct" aria-hidden="true"></span></div></div><canvas id="viz" width="1200" height="120" hidden></canvas>
       <div id="hint">drag = rotate · right-drag / shift-drag = move · wheel = zoom · click = pick mesh · double-click = focus</div></div>
     <div id="gallery"></div>
     <div id="tr" hidden>
@@ -56,10 +57,10 @@
   <aside id="insp"><div id="inspBody"></div></aside>
 </div>
 <div id="lb"><img alt=""></div>
-<div id="gate"><div><h2>18+ content</h2><p>This item may contain nudity.<br>Are you 18 or older?</p><button id="gYes" class="on">Yes, I'm 18+</button><button id="gNo">No, go back</button></div></div>
+<dialog id="gate" aria-labelledby="gT"><div class="panel"><h2 id="gT">18+ content</h2><p>This item may contain nudity.<br>Are you 18 or older?</p><div class="btns"><button id="gYes" class="primary">Yes, I'm 18+</button><button id="gNo">No, go back</button></div></div></dialog>
 
 <input id="fileIn" type="file" multiple hidden accept=".glb,.gltf,.bin,.fbx,.obj,.mtl,.vmd,.wav,.mp3,.ogg,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tga">
-<div id="drop" hidden>Drop files or a folder to open</div>
+<div id="drop" role="presentation" hidden>Drop files or a folder to open</div>
 
 <script type="module" src="/src/app.js"></script>
 </body>

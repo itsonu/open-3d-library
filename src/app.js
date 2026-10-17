@@ -274,16 +274,19 @@ function mount(obj){
 }
 function loadModel(it, file){
   const my = ++token;
-  disposeModel(); $('#msg').textContent = ''; $('#err').hidden = true; $('#load').hidden = false; $('#load').textContent = 'Loading…'; $('#load').style.setProperty('--b', cur.thumb ? cssUrl(cur.thumb) : 'none');
-  fetchModelRetry(it, file, e => { if(my===token && !model && e.lengthComputable) $('#load').textContent = `Loading… ${Math.round(e.loaded/e.total*100)}%`; })
+  disposeModel(); $('#msg').textContent = ''; $('#err').hidden = true; showLoad(`Loading ${file.n}`, cur.thumb ? cssUrl(cur.thumb) : 'none');
+  fetchModelRetry(it, file, e => { if(my===token && !model && e.lengthComputable) loadPct(Math.round(e.loaded/e.total*100)); })
     .then(o => { if(my===token) mount(o); else disposeObj(o); })
     .catch(e => { if(my===token) showError(file, e, it); });
 }
+// loading overlay: file name + percentage (indeterminate until the server reports a length)
+function showLoad(t, bg){ $('#loadT').textContent = t; $('#loadP').removeAttribute('value'); $('#loadPct').textContent = ''; $('#load').style.setProperty('--b', bg); $('#load').hidden = false; }
+const loadPct = p => { $('#loadP').value = p; $('#loadPct').textContent = p + '%'; };
 // load failure: a panel in the viewer with the reason and a way out (the loading overlay never stays up)
 function showError(file, e, it){
   stopPlayback(); $('#load').hidden = true; $('#msg').textContent = '';
   const why = e?.message || e?.type || String(e);
-  $('#errMsg').textContent = `Couldn't open ${file.n}: ${why}` + (it?.local ? '' : '  (is serve.py still running?)');
+  $('#errMsg').textContent = why + (it?.local ? '' : '  (is serve.py still running?)');
   $('#errFile').textContent = file.n; $('#err').hidden = false;
 }
 
@@ -295,7 +298,7 @@ function open(id){
   setView('viewer'); cur = it; token++; disposeModel(); $('#err').hidden = true;
   $('#bPrev').disabled = $('#bNext').disabled = !!it.local;
   $('#title').textContent = `${typeLabel(it)} / ${it.name}`;
-  document.title = `${it.name} · Motion Library`;
+  document.title = `${it.name} · Open 3D Library`;
   const models = it.files.filter(f => VIEW.includes(ext(f.n))).sort((a,b) => VIEW.indexOf(ext(a.n)) - VIEW.indexOf(ext(b.n)));
   const imgs = it.files.filter(f => IMG.includes(ext(f.n)));
   const fsel = $('#fsel'), g = $('#gallery');
@@ -333,7 +336,7 @@ async function vmdInfo(it){
 }
 function loadMocap(it, file){
   const my = ++token;
-  disposeModel(); $('#msg').textContent = ''; $('#err').hidden = true; $('#load').hidden = false; $('#load').textContent = 'Reading motion…'; $('#load').style.setProperty('--b', 'none');
+  disposeModel(); $('#msg').textContent = ''; $('#err').hidden = true; showLoad(`Reading ${file.n}`, 'none');
   fetch(url(it, file.n)).then(r => { if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); }).then(buf => import('./vmdplayer.js').then(m => m.buildMannequin(buf)))
     .then(o => { if(my===token) mount(o); else disposeObj(o); })
     .catch(e => { if(my===token) showError(file, e, it); });
@@ -429,14 +432,15 @@ lb.ondblclick = () => lbShow(lbI);
 let lib = [], filter = 'all', locals = [];
 let passed = null;                                          // the one item the user just confirmed; asked again next time
 function askAge(id){
-  $('#gate').style.display = 'flex';
-  $('#gYes').onclick = () => { passed = id; $('#gate').style.display = 'none'; open(id); };
-  $('#gNo').onclick = () => { $('#gate').style.display = 'none'; location.hash = ''; };
+  const g = $('#gate'); g.showModal();
+  $('#gYes').onclick = () => { passed = id; g.close(); open(id); };
+  $('#gNo').onclick = () => { g.close(); location.hash = ''; };
+  g.oncancel = () => { location.hash = ''; };                      // Esc = no
 }
 let libDirty = false;
 function setView(v){
   view = v; $('#lib').hidden = $('#hLib').hidden = v!=='lib'; $('#viewer').hidden = $('#hView').hidden = v!=='viewer';
-  if(v==='lib'){ document.title = 'Motion Library'; disposeModel(); cur = null; passed = null; $('#err').hidden = true; if(libDirty) renderLib(); }
+  if(v==='lib'){ document.title = 'Open 3D Library'; disposeModel(); cur = null; passed = null; $('#err').hidden = true; if(libDirty) renderLib(); }
   resize();
 }
 function thumbOf(it){
