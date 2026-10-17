@@ -5,6 +5,7 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
+import {planTextures} from './util.js';
 
 const $ = s => document.querySelector(s);
 const LABEL = {character:'Characters', outfit:'Outfits & hair', pose:'Poses', reference:'2D references', motion:'Motion'};
@@ -46,17 +47,21 @@ function fetchModel(it, file, onProg){
   });
 }
 // Some exports lose their texture links (FBX pointing at "tmp123.fbm/image_0_png", GLB stripped of its images, FBX whose
-// materials just lack maps). Repair in order: 1) explicit per-model rules (item.textureOverrides), 2) match image files to
-// material names by role (bodi -> bodi_Diffuse / bodi_Normal), 3) single-material models take the folder's colour image,
-// 4) drop any map whose image never arrived (it would render black).
+// materials just lack maps). Repair in order: 1) explicit per-model rules (item.textureOverrides), 2) planTextures() (util.js):
+// match image sets by role (Substance 'cloth_Base_color_..', 'bodi_Diffuse') to material/mesh names, 3) drop any map whose image
+// never arrived (it would render black).
 async function fixTextures(obj, it){
   const imgs = it.files.filter(f => IMG.includes(ext(f.n)));
   const cache = {}, jobs = [];
-  const tex = (f, srgb) => (cache[f.n] ??= new THREE.TextureLoader().loadAsync(url(it, f.n))).then(t => { t = t.clone(); t.needsUpdate = true; if(srgb) t.colorSpace = THREE.SRGBColorSpace; return t; });
-  const put = (m, k, f) => jobs.push(tex(f, k==='map').then(t => { m[k] = t; if(k==='map') m.vertexColors = false; m.needsUpdate = true; }, () => {}));
+  const tex = (f, srgb) => (cache[f.n] ??= new THREE.TextureLoader().loadAsync(url(it, f.n))).then(t => { t = t.clone(); t.name = f.n; t.needsUpdate = true; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; return t; });
+  const put = (m, k, f) => jobs.push(tex(f, k==='map' || k==='emissiveMap').then(t => {
+    m[k] = t; if(k==='map') m.vertexColors = false;
+    if(k==='roughnessMap') m.roughness = 1; if(k==='metalnessMap') m.metalness = 1;      // the map is the value
+    if(k==='emissiveMap' && !m.emissive.getHex()) m.emissive.set(0xffffff);
+    if(k==='alphaMap') m.transparent = true;
+    m.needsUpdate = true;
+  }, () => {}));
   const byName = n => imgs.find(f => f.n === n);
-  const role = n => /bump|height/i.test(n) ? 'bumpMap' : /normal|nrm|_n\.|_n$/i.test(n) ? 'normalMap' : /colou?r|diffuse|albedo|base|_c\.|_c$/i.test(n) ? 'map' : null;
-  const key = n => n.toLowerCase().replace(/\.[^.]+$/, '').replace(/[^a-z].*$/, '');
   const fx = it.textureOverrides;
   const meshes = []; obj.traverse(o => o.isMesh && meshes.push(o));
   const done = new Set();                                   // materials set by an explicit rule are left alone below
@@ -66,14 +71,24 @@ async function fixTextures(obj, it){
     else if(f) [].concat(o.material).forEach(m => { put(m, 'map', f); done.add(m); });
   }
   {
-    const mats = new Set(meshes.flatMap(o => [].concat(o.material)));
-    const color = imgs.find(f => role(f.n)==='map') || (imgs.length===1 ? imgs[0] : null), normal = imgs.find(f => role(f.n)==='normalMap');
-    for(const m of mats){
-      if(done.has(m) || m.map?.image) continue;
-      const mine = m.name ? imgs.filter(f => key(f.n) && key(f.n) === key(m.name)) : [];
-      if(mine.length) for(const f of mine){ const r = role(f.n); if(r && !m[r]?.image) put(m, r, f); }
-      else if(mats.size === 1){ if(color) put(m, 'map', color); if(normal && !m.normalMap?.image) put(m, 'normalMap', normal); }
-    }
+    const all = new Set(meshes.flatMap(o => [].concat(o.material)));
+    const mats = [...all].filter(m => !done.has(m) && !m.map?.image);
+    const users = m => meshes.filter(o => [].concat(o.material).includes(m)).map(o => o.name);
+    const plan = planTextures(imgs.map(f => f.n), mats.map(m => ({name: m.name || '', meshes: users(m)})), all.size === 1);
+    const toStandard = m => {                               // Phong/Lambert have no roughness/metalness maps
+      const s = new THREE.MeshStandardMaterial();
+      for(const k of ['name','color','emissive','side','transparent','opacity','alphaTest','vertexColors','wireframe','map','normalMap','bumpMap','aoMap','emissiveMap','alphaMap']) if(m[k] !== undefined) s[k]?.isColor ? s[k].copy(m[k]) : s[k] = m[k];
+      for(const o of meshes) o.material = Array.isArray(o.material) ? o.material.map(x => x === m ? s : x) : o.material === m ? s : o.material;
+      return s;
+    };
+    mats.forEach((m, i) => {
+      const files = plan[i]; if(!files) return;
+      if((files.roughnessMap || files.metalnessMap) && !m.isMeshStandardMaterial) m = toStandard(m);
+      for(const [k, n] of Object.entries(files)){
+        if(!(k in m) || m[k]?.image || (k==='bumpMap' && files.normalMap)) continue;   // unsupported by this material type, already has one, or a normal map wins over height
+        put(m, k, byName(n));
+      }
+    });
   }
   await Promise.all(jobs);
   for(const o of meshes) for(const m of [].concat(o.material)) for(const k of ['map','normalMap','bumpMap','roughnessMap','metalnessMap','aoMap','emissiveMap','alphaMap','specularMap'])
