@@ -2,15 +2,23 @@
 /*
 !/.gitignore
 !/index.html
+!/package.json
+!/package-lock.json
+!/vite.config.js
+!/src/
+!/src/**
+!/public/
+!/public/**
+!/tests/
+!/tests/**
 !/serve.py
 !/README.md
 !/vendor/
 !/vendor/**
-!/vmdplayer.js
-!/meadow.js
-!/fauna.js
-!/insects.js
 !/LICENSE
 !/THIRD_PARTY_NOTICES.md
 !/docs/
 !/docs/**
+# dependencies and build output
+node_modules/
+dist/

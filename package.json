@@ -1,0 +1,20 @@
+{
+  "name": "open-3d-library",
+  "version": "0.1.0",
+  "description": "Local-first three.js 3D asset viewer",
+  "type": "module",
+  "license": "MIT",
+  "repository": "github:itsonu/open-3d-library",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4"
+  }
+}

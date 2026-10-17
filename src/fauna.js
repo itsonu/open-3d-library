@@ -102,7 +102,7 @@ export class Fauna {
     while(this.recs.length > want){ const r = this.recs.pop(); r.a.dispose(); }
     if(this.building) return; this.building = true;
     try{
-      const lib = this.lib ??= await import('./vendor/procedural-animals/src/index.js');
+      const lib = this.lib ??= await import('../vendor/procedural-animals/src/index.js');
       while(!this.dead && this.recs.length < ROSTER.filter(([, min]) => this.level >= min).length){
         const idx = this.recs.length, [kind] = ROSTER[idx], seed = 3 + idx * 7 + (hashStr(String(this.rnd())) % 50);
         const [x, z] = this.ringPoint(2.7, 3.4), heading = this.rnd() * TAU;
