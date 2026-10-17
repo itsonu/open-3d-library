@@ -1,0 +1,12 @@
+{
+ "name": "Fox",
+ "description": "Low-poly fox with a skinned rig and three animation clips (Survey, Walk, Run).",
+ "license": "CC0-1.0 (model) + CC-BY-4.0 (rig, animation, glTF conversion)",
+ "author": "PixelMannen (model); tomkranis (rigging & animation); @AsoboStudio and @scurest (glTF conversion)",
+ "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox",
+ "tags": [
+  "skinned",
+  "animation",
+  "glb"
+ ]
+}

@@ -1,0 +1,13 @@
+{
+ "name": "Sheen chair",
+ "description": "Upholstered chair showing sheen fabric, texture transforms and material variants.",
+ "license": "CC0-1.0",
+ "author": "Eric Chadwick (Wayfair, LLC)",
+ "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/SheenChair",
+ "tags": [
+  "pbr",
+  "KHR_materials_sheen",
+  "KHR_materials_variants",
+  "glb"
+ ]
+}

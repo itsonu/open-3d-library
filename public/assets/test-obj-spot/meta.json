@@ -1,0 +1,12 @@
+{
+ "name": "Spot (OBJ)",
+ "description": "Classic textured test mesh as Wavefront OBJ + MTL (MTL added by this project).",
+ "license": "Public domain (author dedication)",
+ "author": "Keenan Crane",
+ "source": "https://www.cs.cmu.edu/~kmcrane/Projects/ModelRepository/",
+ "tags": [
+  "obj",
+  "mtl",
+  "texture"
+ ]
+}

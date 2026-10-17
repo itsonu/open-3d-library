@@ -1,0 +1,12 @@
+{
+ "name": "Rock",
+ "description": "Photoscanned rock (1k textures).",
+ "license": "CC0-1.0",
+ "author": "Jenelle van Heerden, Poly Haven",
+ "source": "https://polyhaven.com/a/rock_09",
+ "tags": [
+  "rock",
+  "scan",
+  "gltf"
+ ]
+}

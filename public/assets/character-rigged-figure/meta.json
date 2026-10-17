@@ -1,0 +1,12 @@
+{
+ "name": "Rigged figure",
+ "description": "Minimal skinned humanoid with a walk cycle: a skeletal-animation test.",
+ "license": "CC-BY-4.0",
+ "author": "Cesium",
+ "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/RiggedFigure",
+ "tags": [
+  "skinned",
+  "animation",
+  "glb"
+ ]
+}

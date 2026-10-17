@@ -1,1 +1,215 @@
-{"items":[]}
+{
+ "items": [
+  {
+   "id": "animal-fox",
+   "type": "animal",
+   "name": "Fox",
+   "files": [
+    {
+     "n": "Fox.glb",
+     "s": 162852
+    }
+   ],
+   "description": "Low-poly fox with a skinned rig and three animation clips (Survey, Walk, Run).",
+   "license": "CC0-1.0 (model) + CC-BY-4.0 (rig, animation, glTF conversion)",
+   "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox",
+   "author": "PixelMannen (model); tomkranis (rigging & animation); @AsoboStudio and @scurest (glTF conversion)",
+   "tags": [
+    "skinned",
+    "animation",
+    "glb"
+   ],
+   "thumb": "assets/.thumbs/animal-fox.jpg"
+  },
+  {
+   "id": "character-rigged-figure",
+   "type": "character",
+   "name": "Rigged figure",
+   "files": [
+    {
+     "n": "RiggedFigure.glb",
+     "s": 50116
+    }
+   ],
+   "description": "Minimal skinned humanoid with a walk cycle: a skeletal-animation test.",
+   "license": "CC-BY-4.0",
+   "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/RiggedFigure",
+   "author": "Cesium",
+   "tags": [
+    "skinned",
+    "animation",
+    "glb"
+   ],
+   "thumb": "assets/.thumbs/character-rigged-figure.jpg"
+  },
+  {
+   "id": "material-glass-vase-flowers",
+   "type": "material",
+   "name": "Glass vase with flowers",
+   "files": [
+    {
+     "n": "GlassVaseFlowers.glb",
+     "s": 1819824
+    }
+   ],
+   "description": "Transmissive glass vase with flowers: transmission and volume.",
+   "license": "CC0-1.0",
+   "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/GlassVaseFlowers",
+   "author": "Eric Chadwick (vase), Rico Cilliers (flowers)",
+   "tags": [
+    "pbr",
+    "KHR_materials_transmission",
+    "KHR_materials_volume",
+    "plants",
+    "glb"
+   ],
+   "thumb": "assets/.thumbs/material-glass-vase-flowers.jpg"
+  },
+  {
+   "id": "material-sheen-chair",
+   "type": "material",
+   "name": "Sheen chair",
+   "files": [
+    {
+     "n": "SheenChair.glb",
+     "s": 4125648
+    }
+   ],
+   "description": "Upholstered chair showing sheen fabric, texture transforms and material variants.",
+   "license": "CC0-1.0",
+   "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/SheenChair",
+   "author": "Eric Chadwick (Wayfair, LLC)",
+   "tags": [
+    "pbr",
+    "KHR_materials_sheen",
+    "KHR_materials_variants",
+    "glb"
+   ],
+   "thumb": "assets/.thumbs/material-sheen-chair.jpg"
+  },
+  {
+   "id": "nature-fern",
+   "type": "nature",
+   "name": "Fern",
+   "files": [
+    {
+     "n": "fern_02.bin",
+     "s": 176176
+    },
+    {
+     "n": "fern_02_1k.gltf",
+     "s": 6899
+    }
+   ],
+   "description": "Photoscanned fern with alpha-masked leaves (1k textures).",
+   "license": "CC0-1.0",
+   "source": "https://polyhaven.com/a/fern_02",
+   "author": "Rob Tuytel (scanning), Rico Cilliers (modeling), Poly Haven",
+   "tags": [
+    "vegetation",
+    "alpha mask",
+    "gltf"
+   ],
+   "thumb": "assets/.thumbs/nature-fern.jpg"
+  },
+  {
+   "id": "nature-rock",
+   "type": "nature",
+   "name": "Rock",
+   "files": [
+    {
+     "n": "rock_09.bin",
+     "s": 286592
+    },
+    {
+     "n": "rock_09_1k.gltf",
+     "s": 2745
+    }
+   ],
+   "description": "Photoscanned rock (1k textures).",
+   "license": "CC0-1.0",
+   "source": "https://polyhaven.com/a/rock_09",
+   "author": "Jenelle van Heerden, Poly Haven",
+   "tags": [
+    "rock",
+    "scan",
+    "gltf"
+   ],
+   "thumb": "assets/.thumbs/nature-rock.jpg"
+  },
+  {
+   "id": "test-fbx-moon-rock",
+   "type": "test",
+   "name": "Moon rock (FBX)",
+   "files": [
+    {
+     "n": "moon_rock_02_1k.fbx",
+     "s": 121436
+    },
+    {
+     "n": "moon_rock_02_diff_1k.jpg",
+     "s": 394361
+    }
+   ],
+   "description": "Binary FBX fixture with a diffuse texture (normal and roughness maps omitted: EXR is not supported).",
+   "license": "CC0-1.0",
+   "source": "https://polyhaven.com/a/moon_rock_02",
+   "author": "Rico Cilliers, Greg Zaal (photography), Jenelle van Heerden (processing), Poly Haven",
+   "tags": [
+    "fbx",
+    "rock"
+   ],
+   "thumb": "assets/.thumbs/test-fbx-moon-rock.jpg"
+  },
+  {
+   "id": "test-morph-stress",
+   "type": "test",
+   "name": "Morph stress test",
+   "files": [
+    {
+     "n": "MorphStressTest.glb",
+     "s": 575900
+    }
+   ],
+   "description": "Eight morph targets driven by three animation clips.",
+   "license": "CC-BY-4.0",
+   "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MorphStressTest",
+   "author": "Ed Mackey, Analytical Graphics, Inc.",
+   "tags": [
+    "morph targets",
+    "animation",
+    "glb"
+   ],
+   "thumb": "assets/.thumbs/test-morph-stress.jpg"
+  },
+  {
+   "id": "test-obj-spot",
+   "type": "test",
+   "name": "Spot (OBJ)",
+   "files": [
+    {
+     "n": "spot_texture.png",
+     "s": 78699
+    },
+    {
+     "n": "spot_triangulated.mtl",
+     "s": 45
+    },
+    {
+     "n": "spot_triangulated.obj",
+     "s": 330624
+    }
+   ],
+   "description": "Classic textured test mesh as Wavefront OBJ + MTL (MTL added by this project).",
+   "license": "Public domain (author dedication)",
+   "source": "https://www.cs.cmu.edu/~kmcrane/Projects/ModelRepository/",
+   "author": "Keenan Crane",
+   "tags": [
+    "obj",
+    "mtl",
+    "texture"
+   ],
+   "thumb": "assets/.thumbs/test-obj-spot.jpg"
+  }
+ ]
+}

@@ -5,11 +5,14 @@
   "type": "module",
   "license": "MIT",
   "repository": "github:itsonu/open-3d-library",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "catalog": "python3 serve.py --write-catalog public/catalog.json"
   },
   "dependencies": {
     "three": "0.186.1"

@@ -1,0 +1,14 @@
+{
+ "name": "Glass vase with flowers",
+ "description": "Transmissive glass vase with flowers: transmission and volume.",
+ "license": "CC0-1.0",
+ "author": "Eric Chadwick (vase), Rico Cilliers (flowers)",
+ "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/GlassVaseFlowers",
+ "tags": [
+  "pbr",
+  "KHR_materials_transmission",
+  "KHR_materials_volume",
+  "plants",
+  "glb"
+ ]
+}

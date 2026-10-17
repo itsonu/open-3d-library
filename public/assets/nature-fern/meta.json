@@ -1,0 +1,12 @@
+{
+ "name": "Fern",
+ "description": "Photoscanned fern with alpha-masked leaves (1k textures).",
+ "license": "CC0-1.0",
+ "author": "Rob Tuytel (scanning), Rico Cilliers (modeling), Poly Haven",
+ "source": "https://polyhaven.com/a/fern_02",
+ "tags": [
+  "vegetation",
+  "alpha mask",
+  "gltf"
+ ]
+}

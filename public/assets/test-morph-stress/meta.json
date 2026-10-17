@@ -1,0 +1,12 @@
+{
+ "name": "Morph stress test",
+ "description": "Eight morph targets driven by three animation clips.",
+ "license": "CC-BY-4.0",
+ "author": "Ed Mackey, Analytical Graphics, Inc.",
+ "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MorphStressTest",
+ "tags": [
+  "morph targets",
+  "animation",
+  "glb"
+ ]
+}

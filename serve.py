@@ -217,7 +217,12 @@ def main():
     ap.add_argument('--host', default='127.0.0.1')
     ap.add_argument('--no-browser', action='store_true')
     ap.add_argument('--dist', default=str(HERE / 'dist'), help=argparse.SUPPRESS)
+    ap.add_argument('--write-catalog', metavar='FILE', help='write the catalog of --assets to FILE and exit (used for public/catalog.json)')
     a = ap.parse_args()
+    if a.write_catalog:
+        items = Catalog(Path(a.assets).resolve()).build()
+        Path(a.write_catalog).write_text(json.dumps({'items': items}, indent=1, ensure_ascii=False) + '\n', encoding='utf-8')
+        return print(f'{len(items)} items -> {a.write_catalog}')
     if not Path(a.dist).is_dir(): print('dist/ not found: run `npm run build` first (until then only /assets/ and /catalog.json work).', file=sys.stderr)
     if not Path(a.assets).is_dir(): print(f'asset folder not found: {a.assets}', file=sys.stderr)
     srv = make_server(a.dist, a.assets, a.host, a.port, check_host=a.host in LOOPBACK)
