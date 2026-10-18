@@ -4,6 +4,12 @@ A local-first 3D asset viewer and library for the web, built on [three.js](https
 
 No account, no upload, no backend required: your files stay in your browser.
 
+
+
+https://github.com/user-attachments/assets/c2a90976-ae8d-43b8-8737-642e161c9c3a
+
+
+
 ![Library](docs/images/library-grid.png)
 
 | Viewer | Procedural meadow |
